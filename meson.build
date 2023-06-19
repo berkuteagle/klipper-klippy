@@ -4,7 +4,7 @@ py_mod = import('python')
 py = py_mod.find_installation()
 
 includes = include_directories(['src/c'])
-sources_c = files('src/c/klippy.c')
+sources_c = files('src/c/klippy.c', 'src/c/pyhelper.c')
 
 sources_py = files(
     'src/__init__.py',

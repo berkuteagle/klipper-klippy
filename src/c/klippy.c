@@ -1,17 +1,19 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
-static PyObject * add(PyObject *self, PyObject *args) {
-    int a, b;
+#include "pyhelper.h"
 
-    if(!PyArg_ParseTuple(args, "ii", &a, &b))
-        return NULL;
+static PyObject * klippy_get_monotonic(PyObject *self, PyObject *args) {
+    return PyLong_FromLong(get_monotonic());
+}
 
-    return PyLong_FromLong(a + b);
+static PyObject * klippy_dummy(PyObject *self, PyObject *args) {
+    return PyLong_FromLong(0);
 }
 
 static PyMethodDef methods[] = {
-    {"add", add, METH_VARARGS, "Add two integers."},
+    {"get_monotonic", klippy_get_monotonic, METH_NOARGS, "get_monotonic"},
+    {"new_char_array", klippy_dummy, METH_NOARGS, "new_char_array"},
     {NULL, NULL, 0, NULL}
 };
 

@@ -3,13 +3,17 @@
 # Copyright (C) 2016-2021  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import logging, threading, os
+import logging
+import threading
+import os
 import serial
 
-import msgproto, chelper, util
+from . import msgproto, util
+from ._klippy import new_char_array, new_pull_queue_message, serialqueue_pull, serialqueue_alloc, serialqueue_set_wire_frequency, serialqueue_set_receive_window, serialqueue_alloc, serialqueue_set_clock_est, serialqueue_exit, serialqueue_get_stats, char_array_to_string, serialqueue_send, serialqueue_alloc_commandqueue, new_pull_queue_message_array, serialqueue_extract_old
 
 class error(Exception):
     pass
+
 
 class SerialReader:
     def __init__(self, reactor, warn_prefix=""):
@@ -21,7 +25,7 @@ class SerialReader:
         # C interface
         self.serialqueue = None
         self.default_cmd_queue = self.alloc_command_queue()
-        self.stats_buf = chelper.new_char_array(4096)
+        self.stats_buf = new_char_array(4096)
         # Threading
         self.lock = threading.Lock()
         self.background_thread = None
@@ -32,10 +36,11 @@ class SerialReader:
         # Sent message notification tracking
         self.last_notify_id = 0
         self.pending_notifications = {}
+
     def _bg_thread(self):
-        response = chelper.new_pull_queue_message()
+        response = new_pull_queue_message()
         while 1:
-            chelper.serialqueue_pull(self.serialqueue, response)
+            serialqueue_pull(self.serialqueue, response)
             count = response.len
             if count < 0:
                 break
@@ -56,8 +61,10 @@ class SerialReader:
             except:
                 logging.exception("%sException in serial callback",
                                   self.warn_prefix)
+
     def _error(self, msg, *params):
         raise error(self.warn_prefix + (msg % params))
+
     def _get_identify_data(self, eventtime):
         # Query the "data dictionary" from the micro-controller
         identify_data = b""
@@ -75,9 +82,11 @@ class SerialReader:
                     # Done
                     return identify_data
                 identify_data += msgdata
+
     def _start_session(self, serial_dev, serial_fd_type=b'u', client_id=0):
         self.serial_dev = serial_dev
-        self.serialqueue = chelper.serialqueue_alloc(serial_dev.fileno(), serial_fd_type, client_id)
+        self.serialqueue = serialqueue_alloc(
+            serial_dev.fileno(), serial_fd_type, client_id)
         self.background_thread = threading.Thread(target=self._bg_thread)
         self.background_thread.start()
         # Obtain and load the data dictionary from the firmware
@@ -97,14 +106,15 @@ class SerialReader:
         else:
             wire_freq = msgparser.get_constant_float('SERIAL_BAUD', None)
         if wire_freq is not None:
-            chelper.serialqueue_set_wire_frequency(self.serialqueue, wire_freq)
+            serialqueue_set_wire_frequency(self.serialqueue, wire_freq)
         receive_window = msgparser.get_constant_int('RECEIVE_WINDOW', None)
         if receive_window is not None:
-            chelper.serialqueue_set_receive_window(
+            serialqueue_set_receive_window(
                 self.serialqueue, receive_window)
         return True
+
     def connect_canbus(self, canbus_uuid, canbus_nodeid, canbus_iface="can0"):
-        import can # XXX
+        import can  # XXX
         txid = canbus_nodeid * 2 + 256
         filters = [{"can_id": txid+1, "can_mask": 0x7ff, "extended": False}]
         # Prep for SET_NODEID command
@@ -136,7 +146,7 @@ class SerialReader:
                              self.warn_prefix, e)
                 self.reactor.pause(self.reactor.monotonic() + 5.)
                 continue
-            bus.close = bus.shutdown # XXX
+            bus.close = bus.shutdown  # XXX
             ret = self._start_session(bus, b'c', txid)
             if not ret:
                 continue
@@ -152,6 +162,7 @@ class SerialReader:
             logging.info("%sFailed to match canbus_uuid - retrying..",
                          self.warn_prefix)
             self.disconnect()
+
     def connect_pipe(self, filename):
         logging.info("%sStarting connect", self.warn_prefix)
         start_time = self.reactor.monotonic()
@@ -168,6 +179,7 @@ class SerialReader:
             ret = self._start_session(serial_dev)
             if ret:
                 break
+
     def connect_uart(self, serialport, baud, rts=True):
         # Initial connection
         logging.info("%sStarting serial connect", self.warn_prefix)
@@ -190,15 +202,19 @@ class SerialReader:
             ret = self._start_session(serial_dev)
             if ret:
                 break
+
     def connect_file(self, debugoutput, dictionary, pace=False):
         self.serial_dev = debugoutput
         self.msgparser.process_identify(dictionary, decompress=False)
-        self.serialqueue = chelper.serialqueue_alloc(self.serial_dev.fileno(), b'f', 0)
+        self.serialqueue = serialqueue_alloc(self.serial_dev.fileno(), b'f', 0)
+
     def set_clock_est(self, freq, conv_time, conv_clock, last_clock):
-        chelper.serialqueue_set_clock_est(self.serialqueue, freq, conv_time, conv_clock, last_clock)
+        serialqueue_set_clock_est(
+            self.serialqueue, freq, conv_time, conv_clock, last_clock)
+
     def disconnect(self):
         if self.serialqueue is not None:
-            chelper.serialqueue_exit(self.serialqueue)
+            serialqueue_exit(self.serialqueue)
             if self.background_thread is not None:
                 self.background_thread.join()
             self.background_thread = self.serialqueue = None
@@ -208,20 +224,26 @@ class SerialReader:
         for pn in self.pending_notifications.values():
             pn.complete(None)
         self.pending_notifications.clear()
+
     def stats(self, eventtime):
         if self.serialqueue is None:
             return ""
-        chelper.serialqueue_get_stats(self.serialqueue, self.stats_buf)
-        return chelper.char_array_to_string(self.stats_buf)
+        serialqueue_get_stats(self.serialqueue, self.stats_buf)
+        return char_array_to_string(self.stats_buf)
+
     def get_reactor(self):
         return self.reactor
+
     def get_msgparser(self):
         return self.msgparser
+
     def get_serialqueue(self):
         return self.serialqueue
+
     def get_default_command_queue(self):
         return self.default_cmd_queue
     # Serial response callbacks
+
     def register_response(self, callback, name, oid=None):
         with self.lock:
             if callback is None:
@@ -229,36 +251,44 @@ class SerialReader:
             else:
                 self.handlers[name, oid] = callback
     # Command sending
+
     def raw_send(self, cmd, minclock, reqclock, cmd_queue):
-        chelper.serialqueue_send(self.serialqueue, cmd_queue, cmd, minclock, reqclock, 0)
+        serialqueue_send(
+            self.serialqueue, cmd_queue, cmd, minclock, reqclock, 0)
+
     def raw_send_wait_ack(self, cmd, minclock, reqclock, cmd_queue):
         self.last_notify_id += 1
         nid = self.last_notify_id
         completion = self.reactor.completion()
         self.pending_notifications[nid] = completion
-        chelper.serialqueue_send(self.serialqueue, cmd_queue, cmd, minclock, reqclock, nid)
+        serialqueue_send(
+            self.serialqueue, cmd_queue, cmd, minclock, reqclock, nid)
         params = completion.wait()
         if params is None:
             self._error("Serial connection closed")
         return params
+
     def send(self, msg, minclock=0, reqclock=0):
         cmd = self.msgparser.create_command(msg)
         self.raw_send(cmd, minclock, reqclock, self.default_cmd_queue)
+
     def send_with_response(self, msg, response):
         cmd = self.msgparser.create_command(msg)
         src = SerialRetryCommand(self, response)
         return src.get_response([cmd], self.default_cmd_queue)
+
     def alloc_command_queue(self):
-        return chelper.serialqueue_alloc_commandqueue()
+        return serialqueue_alloc_commandqueue()
     # Dumping debug lists
+
     def dump_debug(self):
         out = []
         out.append("Dumping serial stats: %s" % (
             self.stats(self.reactor.monotonic()),))
-        sdata = chelper.new_pull_queue_message_array(1024)
-        rdata = chelper.new_pull_queue_message_array(1024)
-        scount = chelper.serialqueue_extract_old(self.serialqueue, 1, sdata)
-        rcount = chelper.serialqueue_extract_old(self.serialqueue, 0, rdata)
+        sdata = new_pull_queue_message_array(1024)
+        rdata = new_pull_queue_message_array(1024)
+        scount = serialqueue_extract_old(self.serialqueue, 1, sdata)
+        rcount = serialqueue_extract_old(self.serialqueue, 0, rdata)
         out.append("Dumping send queue %d messages" % (scount,))
         for i in range(scount):
             msg = sdata[i]
@@ -273,19 +303,25 @@ class SerialReader:
                 i, msg.receive_time, msg.sent_time, msg.len, ', '.join(cmds)))
         return '\n'.join(out)
     # Default message handlers
+
     def _handle_unknown_init(self, params):
         logging.debug("%sUnknown message %d (len %d) while identifying",
                       self.warn_prefix, params['#msgid'], len(params['#msg']))
+
     def handle_unknown(self, params):
         logging.warn("%sUnknown message type %d: %s",
                      self.warn_prefix, params['#msgid'], repr(params['#msg']))
+
     def handle_output(self, params):
         logging.info("%s%s: %s", self.warn_prefix,
                      params['#name'], params['#msg'])
+
     def handle_default(self, params):
         logging.warn("%sgot %s", self.warn_prefix, params)
 
 # Class to send a query command and return the received response
+
+
 class SerialRetryCommand:
     def __init__(self, serial, name, oid=None):
         self.serial = serial
@@ -293,8 +329,10 @@ class SerialRetryCommand:
         self.oid = oid
         self.last_params = None
         self.serial.register_response(self.handle_callback, name, oid)
+
     def handle_callback(self, params):
         self.last_params = params
+
     def get_response(self, cmds, cmd_queue, minclock=0, reqclock=0):
         retries = 5
         retry_delay = .010
@@ -316,6 +354,8 @@ class SerialRetryCommand:
             retry_delay *= 2.
 
 # Attempt to place an AVR stk500v2 style programmer into normal mode
+
+
 def stk500v2_leave(ser, reactor):
     logging.debug("Starting stk500v2 leave programmer sequence")
     util.clear_hupcl(ser.fileno())
@@ -332,6 +372,7 @@ def stk500v2_leave(ser, reactor):
     res = ser.read(4096)
     logging.debug("Got %s from stk500v2", repr(res))
     ser.baudrate = origbaud
+
 
 def cheetah_reset(serialport, reactor):
     # Fysetc Cheetah v1.2 boards have a weird stateful circuitry for
@@ -360,6 +401,8 @@ def cheetah_reset(serialport, reactor):
     ser.close()
 
 # Attempt an arduino style reset on a serial port
+
+
 def arduino_reset(serialport, reactor):
     # First try opening the port at a different baud
     ser = serial.Serial(serialport, 2400, timeout=0, exclusive=True)

@@ -8,8 +8,6 @@ import sys, os, gc, optparse, logging, time, collections, importlib
 from . import util, reactor, queuelogger, msgproto
 from . import gcode, configfile, pins, mcu, toolhead, webhooks
 
-from ._klippy import add
-
 message_ready = "Printer is ready"
 
 message_startup = """

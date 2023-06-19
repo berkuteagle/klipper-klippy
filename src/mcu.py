@@ -3,8 +3,13 @@
 # Copyright (C) 2016-2023  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import sys, os, zlib, logging, math
-import serialhdl, msgproto, pins, chelper, clocksync
+import os
+import zlib
+import logging
+import math
+from . import serialhdl, msgproto, pins, clocksync
+from . import _klippy
+
 
 class error(Exception):
     pass
@@ -18,6 +23,7 @@ class error(Exception):
 class RetryAsyncCommand:
     TIMEOUT_TIME = 5.0
     RETRY_TIME = 0.500
+
     def __init__(self, serial, name, oid=None):
         self.serial = serial
         self.name = name
@@ -26,10 +32,12 @@ class RetryAsyncCommand:
         self.completion = self.reactor.completion()
         self.min_query_time = self.reactor.monotonic()
         self.serial.register_response(self.handle_callback, name, oid)
+
     def handle_callback(self, params):
         if params['#sent_time'] >= self.min_query_time:
             self.min_query_time = self.reactor.NEVER
             self.reactor.async_complete(self.completion, params)
+
     def get_response(self, cmds, cmd_queue, minclock=0, reqclock=0):
         cmd, = cmds
         self.serial.raw_send_wait_ack(cmd, minclock, reqclock, cmd_queue)
@@ -47,6 +55,8 @@ class RetryAsyncCommand:
             self.serial.raw_send(cmd, minclock, minclock, cmd_queue)
 
 # Wrapper around query commands
+
+
 class CommandQueryWrapper:
     def __init__(self, serial, msgformat, respformat, oid=None,
                  cmd_queue=None, is_async=False, error=serialhdl.error):
@@ -62,6 +72,7 @@ class CommandQueryWrapper:
         if cmd_queue is None:
             cmd_queue = serial.get_default_command_queue()
         self._cmd_queue = cmd_queue
+
     def _do_send(self, cmds, minclock, reqclock):
         xh = self._xmit_helper(self._serial, self._response, self._oid)
         reqclock = max(minclock, reqclock)
@@ -69,6 +80,7 @@ class CommandQueryWrapper:
             return xh.get_response(cmds, self._cmd_queue, minclock, reqclock)
         except serialhdl.error as e:
             raise self._error(str(e))
+
     def send(self, data=(), minclock=0, reqclock=0):
         return self._do_send([self._cmd.encode(data)], minclock, reqclock)
     def send_with_preface(self, preface_cmd, preface_data=(), data=(),
@@ -77,6 +89,8 @@ class CommandQueryWrapper:
         return self._do_send(cmds, minclock, reqclock)
 
 # Wrapper around command sending
+
+
 class CommandWrapper:
     def __init__(self, serial, msgformat, cmd_queue=None):
         self._serial = serial
@@ -86,9 +100,11 @@ class CommandWrapper:
             cmd_queue = serial.get_default_command_queue()
         self._cmd_queue = cmd_queue
         self._msgtag = msgparser.lookup_msgtag(msgformat) & 0xffffffff
+
     def send(self, data=(), minclock=0, reqclock=0):
         cmd = self._cmd.encode(data)
         self._serial.raw_send(cmd, minclock, reqclock, self._cmd_queue)
+
     def get_command_tag(self):
         return self._msgtag
 
@@ -102,6 +118,7 @@ class MCU_trsync:
     REASON_COMMS_TIMEOUT = 2
     REASON_HOST_REQUEST = 3
     REASON_PAST_END_TIME = 4
+
     def __init__(self, mcu, trdispatch):
         self._mcu = mcu
         self._trdispatch = trdispatch
@@ -118,18 +135,24 @@ class MCU_trsync:
         mcu.register_config_callback(self._build_config)
         printer = mcu.get_printer()
         printer.register_event_handler("klippy:shutdown", self._shutdown)
+
     def get_mcu(self):
         return self._mcu
+
     def get_oid(self):
         return self._oid
+
     def get_command_queue(self):
         return self._cmd_queue
+
     def add_stepper(self, stepper):
         if stepper in self._steppers:
             return
         self._steppers.append(stepper)
+
     def get_steppers(self):
         return list(self._steppers)
+
     def _build_config(self):
         mcu = self._mcu
         # Setup config
@@ -159,15 +182,17 @@ class MCU_trsync:
         state_cmd = mcu.lookup_command(
             "trsync_state oid=%c can_trigger=%c trigger_reason=%c clock=%u")
         state_tag = state_cmd.get_command_tag()
-        self._trdispatch_mcu = chelper.trdispatch_mcu_alloc(
-            self._trdispatch, mcu._serial.get_serialqueue(), # XXX
+        self._trdispatch_mcu = _klippy.trdispatch_mcu_alloc(
+            self._trdispatch, mcu._serial.get_serialqueue(),  # XXX
             self._cmd_queue, self._oid, set_timeout_tag, trigger_tag,
             state_tag)
+
     def _shutdown(self):
         tc = self._trigger_completion
         if tc is not None:
             self._trigger_completion = None
             tc.complete(False)
+
     def _handle_trsync_state(self, params):
         if not params['can_trigger']:
             tc = self._trigger_completion
@@ -182,6 +207,7 @@ class MCU_trsync:
                 self._home_end_clock = None
                 self._trsync_trigger_cmd.send([self._oid,
                                                self.REASON_PAST_END_TIME])
+
     def start(self, print_time, trigger_completion, expire_timeout):
         self._trigger_completion = trigger_completion
         self._home_end_clock = None
@@ -190,8 +216,8 @@ class MCU_trsync:
         expire_clock = clock + expire_ticks
         report_ticks = self._mcu.seconds_to_clock(expire_timeout * .4)
         min_extend_ticks = self._mcu.seconds_to_clock(expire_timeout * .4 * .8)
-        chelper.trdispatch_mcu_setup(self._trdispatch_mcu, clock, expire_clock,
-                                     expire_ticks, min_extend_ticks)
+        _klippy.trdispatch_mcu_setup(self._trdispatch_mcu, clock, expire_clock,
+                             expire_ticks, min_extend_ticks)
         self._mcu.register_response(self._handle_trsync_state,
                                     "trsync_state", self._oid)
         self._trsync_start_cmd.send([self._oid, clock, report_ticks,
@@ -200,8 +226,10 @@ class MCU_trsync:
             self._stepper_stop_cmd.send([s.get_oid(), self._oid])
         self._trsync_set_timeout_cmd.send([self._oid, expire_clock],
                                           reqclock=expire_clock)
+
     def set_home_end_time(self, home_end_time):
         self._home_end_clock = self._mcu.print_time_to_clock(home_end_time)
+
     def stop(self):
         self._mcu.register_response(None, "trsync_state", self._oid)
         self._trigger_completion = None
@@ -213,11 +241,14 @@ class MCU_trsync:
             s.note_homing_end()
         return params['trigger_reason']
 
+
 TRSYNC_TIMEOUT = 0.025
 TRSYNC_SINGLE_MCU_TIMEOUT = 0.250
 
+
 class MCU_endstop:
     RETRY_QUERY = 1.000
+
     def __init__(self, mcu, pin_params):
         self._mcu = mcu
         self._pin = pin_params['pin']
@@ -228,10 +259,12 @@ class MCU_endstop:
         self._mcu.register_config_callback(self._build_config)
         self._trigger_completion = None
         self._rest_ticks = 0
-        self._trdispatch = chelper.trdispatch_alloc()
+        self._trdispatch = _klippy.trdispatch_alloc()
         self._trsyncs = [MCU_trsync(mcu, self._trdispatch)]
+
     def get_mcu(self):
         return self._mcu
+
     def add_stepper(self, stepper):
         trsyncs = {trsync.get_mcu(): trsync for trsync in self._trsyncs}
         trsync = trsyncs.get(stepper.get_mcu())
@@ -248,8 +281,10 @@ class MCU_endstop:
                         cerror = self._mcu.get_printer().config_error
                         raise cerror("Multi-mcu homing not supported on"
                                      " multi-mcu shared axis")
+
     def get_steppers(self):
         return [s for trsync in self._trsyncs for s in trsync.get_steppers()]
+
     def _build_config(self):
         # Setup config
         self._mcu.add_config_cmd("config_endstop oid=%d pin=%s pull_up=%d"
@@ -268,10 +303,12 @@ class MCU_endstop:
             "endstop_query_state oid=%c",
             "endstop_state oid=%c homing=%c next_clock=%u pin_value=%c",
             oid=self._oid, cq=cmd_queue)
+
     def home_start(self, print_time, sample_time, sample_count, rest_time,
                    triggered=True):
         clock = self._mcu.print_time_to_clock(print_time)
-        rest_ticks = self._mcu.print_time_to_clock(print_time+rest_time) - clock
+        rest_ticks = self._mcu.print_time_to_clock(
+            print_time+rest_time) - clock
         self._rest_ticks = rest_ticks
         reactor = self._mcu.get_printer().get_reactor()
         self._trigger_completion = reactor.completion()
@@ -281,12 +318,13 @@ class MCU_endstop:
         for trsync in self._trsyncs:
             trsync.start(print_time, self._trigger_completion, expire_timeout)
         etrsync = self._trsyncs[0]
-        chelper.trdispatch_start(self._trdispatch, etrsync.REASON_HOST_REQUEST)
+        _klippy.trdispatch_start(self._trdispatch, etrsync.REASON_HOST_REQUEST)
         self._home_cmd.send(
             [self._oid, clock, self._mcu.seconds_to_clock(sample_time),
              sample_count, rest_ticks, triggered ^ self._invert,
              etrsync.get_oid(), etrsync.REASON_ENDSTOP_HIT], reqclock=clock)
         return self._trigger_completion
+
     def home_wait(self, home_end_time):
         etrsync = self._trsyncs[0]
         etrsync.set_home_end_time(home_end_time)
@@ -294,7 +332,7 @@ class MCU_endstop:
             self._trigger_completion.complete(True)
         self._trigger_completion.wait()
         self._home_cmd.send([self._oid, 0, 0, 0, 0, 0, 0, 0])
-        chelper.trdispatch_stop(self._trdispatch)
+        _klippy.trdispatch_stop(self._trdispatch)
         res = [trsync.stop() for trsync in self._trsyncs]
         if any([r == etrsync.REASON_COMMS_TIMEOUT for r in res]):
             return -1.
@@ -305,12 +343,14 @@ class MCU_endstop:
         params = self._query_cmd.send([self._oid])
         next_clock = self._mcu.clock32_to_clock64(params['next_clock'])
         return self._mcu.clock_to_print_time(next_clock - self._rest_ticks)
+
     def query_endstop(self, print_time):
         clock = self._mcu.print_time_to_clock(print_time)
         if self._mcu.is_fileoutput():
             return 0
         params = self._query_cmd.send([self._oid], minclock=clock)
         return params['pin_value'] ^ self._invert
+
 
 class MCU_digital_out:
     def __init__(self, mcu, pin_params):
@@ -324,16 +364,20 @@ class MCU_digital_out:
         self._max_duration = 2.
         self._last_clock = 0
         self._set_cmd = None
+
     def get_mcu(self):
         return self._mcu
+
     def setup_max_duration(self, max_duration):
         self._max_duration = max_duration
+
     def setup_start_value(self, start_value, shutdown_value, is_static=False):
         if is_static and start_value != shutdown_value:
             raise pins.error("Static pin can not have shutdown value")
         self._start_value = (not not start_value) ^ self._invert
         self._shutdown_value = (not not shutdown_value) ^ self._invert
         self._is_static = is_static
+
     def _build_config(self):
         if self._is_static:
             self._mcu.add_config_cmd("set_digital_out pin=%s value=%d"
@@ -343,7 +387,7 @@ class MCU_digital_out:
             raise pins.error("Pin with max duration must have start"
                              " value equal to shutdown value")
         mdur_ticks = self._mcu.seconds_to_clock(self._max_duration)
-        if mdur_ticks >= 1<<31:
+        if mdur_ticks >= 1 << 31:
             raise pins.error("Digital pin max duration too large")
         self._mcu.request_move_queue_slot()
         self._oid = self._mcu.create_oid()
@@ -357,11 +401,13 @@ class MCU_digital_out:
         cmd_queue = self._mcu.alloc_command_queue()
         self._set_cmd = self._mcu.lookup_command(
             "queue_digital_out oid=%c clock=%u on_ticks=%u", cq=cmd_queue)
+
     def set_digital(self, print_time, value):
         clock = self._mcu.print_time_to_clock(print_time)
         self._set_cmd.send([self._oid, clock, (not not value) ^ self._invert],
                            minclock=self._last_clock, reqclock=clock)
         self._last_clock = clock
+
 
 class MCU_pwm:
     def __init__(self, mcu, pin_params):
@@ -378,13 +424,17 @@ class MCU_pwm:
         self._last_clock = self._last_cycle_ticks = 0
         self._pwm_max = 0.
         self._set_cmd = self._set_cycle_ticks = None
+
     def get_mcu(self):
         return self._mcu
+
     def setup_max_duration(self, max_duration):
         self._max_duration = max_duration
+
     def setup_cycle_time(self, cycle_time, hardware_pwm=False):
         self._cycle_time = cycle_time
         self._hardware_pwm = hardware_pwm
+
     def setup_start_value(self, start_value, shutdown_value, is_static=False):
         if is_static and start_value != shutdown_value:
             raise pins.error("Static pin can not have shutdown value")
@@ -394,6 +444,7 @@ class MCU_pwm:
         self._start_value = max(0., min(1., start_value))
         self._shutdown_value = max(0., min(1., shutdown_value))
         self._is_static = is_static
+
     def _build_config(self):
         if self._max_duration and self._start_value != self._shutdown_value:
             raise pins.error("Pin with max duration must have start"
@@ -404,7 +455,7 @@ class MCU_pwm:
         self._last_clock = self._mcu.print_time_to_clock(printtime + 0.200)
         cycle_ticks = self._mcu.seconds_to_clock(self._cycle_time)
         mdur_ticks = self._mcu.seconds_to_clock(self._max_duration)
-        if mdur_ticks >= 1<<31:
+        if mdur_ticks >= 1 << 31:
             raise pins.error("PWM pin max duration too large")
         if self._hardware_pwm:
             self._pwm_max = self._mcu.get_constant_float("PWM_MAX")
@@ -436,7 +487,7 @@ class MCU_pwm:
             self._mcu.add_config_cmd("set_digital_out pin=%s value=%d"
                                      % (self._pin, self._start_value >= 0.5))
             return
-        if cycle_ticks >= 1<<31:
+        if cycle_ticks >= 1 << 31:
             raise pins.error("PWM pin cycle time too large")
         self._mcu.request_move_queue_slot()
         self._oid = self._mcu.create_oid()
@@ -457,6 +508,7 @@ class MCU_pwm:
             "queue_digital_out oid=%c clock=%u on_ticks=%u", cq=cmd_queue)
         self._set_cycle_ticks = self._mcu.lookup_command(
             "set_digital_out_pwm_cycle oid=%c cycle_ticks=%u", cq=cmd_queue)
+
     def set_pwm(self, print_time, value, cycle_time=None):
         clock = self._mcu.print_time_to_clock(print_time)
         minclock = self._last_clock
@@ -473,7 +525,7 @@ class MCU_pwm:
             cycle_time = self._cycle_time
         cycle_ticks = self._mcu.seconds_to_clock(cycle_time)
         if cycle_ticks != self._last_cycle_ticks:
-            if cycle_ticks >= 1<<31:
+            if cycle_ticks >= 1 << 31:
                 raise self._mcu.get_printer().command_error(
                     "PWM cycle time too large")
             self._set_cycle_ticks.send([self._oid, cycle_ticks],
@@ -482,6 +534,7 @@ class MCU_pwm:
         on_ticks = int(max(0., min(1., value)) * float(cycle_ticks) + 0.5)
         self._set_cmd.send([self._oid, clock, on_ticks],
                            minclock=minclock, reqclock=clock)
+
 
 class MCU_adc:
     def __init__(self, mcu, pin_params):
@@ -495,8 +548,10 @@ class MCU_adc:
         self._oid = self._callback = None
         self._mcu.register_config_callback(self._build_config)
         self._inv_max_adc = 0.
+
     def get_mcu(self):
         return self._mcu
+
     def setup_minmax(self, sample_time, sample_count,
                      minval=0., maxval=1., range_check_count=0):
         self._sample_time = sample_time
@@ -504,11 +559,14 @@ class MCU_adc:
         self._min_sample = minval
         self._max_sample = maxval
         self._range_check_count = range_check_count
+
     def setup_adc_callback(self, report_time, callback):
         self._report_time = report_time
         self._callback = callback
+
     def get_last_value(self):
         return self._last_state
+
     def _build_config(self):
         if not self._sample_count:
             return
@@ -532,6 +590,7 @@ class MCU_adc:
                 self._range_check_count), is_init=True)
         self._mcu.register_response(self._handle_analog_in_state,
                                     "analog_in_state", self._oid)
+
     def _handle_analog_in_state(self, params):
         last_value = params['value'] * self._inv_max_adc
         next_clock = self._mcu.clock32_to_clock64(params['next_clock'])
@@ -548,6 +607,7 @@ class MCU_adc:
 
 class MCU:
     error = error
+
     def __init__(self, config, clocksync):
         self._printer = printer = config.get_printer()
         self._clocksync = clocksync
@@ -613,6 +673,7 @@ class MCU:
         printer.register_event_handler("klippy:shutdown", self._shutdown)
         printer.register_event_handler("klippy:disconnect", self._disconnect)
     # Serial callbacks
+
     def _handle_mcu_stats(self, params):
         count = params['count']
         tick_sum = params['sum']
@@ -622,6 +683,7 @@ class MCU:
         diff = count*tick_sumsq - tick_sum**2
         self._mcu_tick_stddev = c * math.sqrt(max(0., diff))
         self._mcu_tick_awake = tick_sum / self._mcu_freq
+
     def _handle_shutdown(self, params):
         if self._is_shutdown:
             return
@@ -637,11 +699,13 @@ class MCU:
         if params['#name'] == 'is_shutdown':
             prefix = "Previous MCU '%s' shutdown: " % (self._name,)
         self._printer.invoke_async_shutdown(prefix + msg + error_help(msg))
+
     def _handle_starting(self, params):
         if not self._is_shutdown:
             self._printer.invoke_async_shutdown("MCU '%s' spontaneous restart"
                                                 % (self._name,))
     # Connection phase
+
     def _check_restart(self, reason):
         start_reason = self._printer.get_start_args().get("start_reason")
         if start_reason == 'firmware_restart':
@@ -651,6 +715,7 @@ class MCU:
         self._printer.request_exit('firmware_restart')
         self._reactor.pause(self._reactor.monotonic() + 2.000)
         raise error("Attempt MCU '%s' restart failed" % (self._name,))
+
     def _connect_file(self, pace=False):
         # In a debugging mode.  Open debug output file and read data dictionary
         start_args = self._printer.get_start_args()
@@ -671,6 +736,7 @@ class MCU:
             def dummy_estimated_print_time(eventtime):
                 return 0.
             self.estimated_print_time = dummy_estimated_print_time
+
     def _send_config(self, prev_crc):
         # Build config commands
         for cb in self._config_callbacks:
@@ -713,12 +779,13 @@ class MCU:
                     "Pin '%s' is not a valid pin name on mcu '%s'"
                     % (enum_value, self._name))
             raise
+
     def _send_get_config(self):
         get_config_cmd = self.lookup_query_command(
             "get_config",
             "config is_config=%c crc=%u is_shutdown=%c move_count=%hu")
         if self.is_fileoutput():
-            return { 'is_config': 0, 'move_count': 500, 'crc': 0 }
+            return {'is_config': 0, 'move_count': 500, 'crc': 0}
         config_params = get_config_cmd.send()
         if self._is_shutdown:
             raise error("MCU '%s' error during config: %s" % (
@@ -727,6 +794,7 @@ class MCU:
             raise error("Can not update MCU '%s' config as it is shutdown" % (
                 self._name,))
         return config_params
+
     def _log_info(self):
         msgparser = self._serial.get_msgparser()
         message_count = len(msgparser.get_messages())
@@ -737,6 +805,7 @@ class MCU:
             "MCU '%s' config: %s" % (self._name, " ".join(
                 ["%s=%s" % (k, v) for k, v in self.get_constants().items()]))]
         return "\n".join(log_info)
+
     def _connect(self):
         config_params = self._send_get_config()
         if not config_params['is_config']:
@@ -759,14 +828,16 @@ class MCU:
         move_count = config_params['move_count']
         if move_count < self._reserved_move_slots:
             raise error("Too few moves available on MCU '%s'" % (self._name,))
-        self._steppersync = chelper.steppersync_alloc(self._serial.get_serialqueue(),
-                                      self._stepqueues, len(self._stepqueues),
-                                      move_count-self._reserved_move_slots, self._mcu_freq)
+        self._steppersync = _klippy.steppersync_alloc(self._serial.get_serialqueue(),
+                                              self._stepqueues, len(
+                                                  self._stepqueues),
+                                              move_count-self._reserved_move_slots, self._mcu_freq)
         # Log config information
         move_msg = "Configured MCU '%s' (%d moves)" % (self._name, move_count)
         logging.info(move_msg)
         log_info = self._log_info() + "\n" + move_msg
         self._printer.set_rollover_info(self._name, log_info, log=False)
+
     def _mcu_identify(self):
         if self.is_fileoutput():
             self._connect_file()
@@ -785,7 +856,8 @@ class MCU:
                     # Cheetah boards require RTS to be deasserted
                     # else a reset will trigger the built-in bootloader.
                     rts = (resmeth != "cheetah")
-                    self._serial.connect_uart(self._serialport, self._baud, rts)
+                    self._serial.connect_uart(
+                        self._serialport, self._baud, rts)
                 else:
                     self._serial.connect_pipe(self._serialport)
                 self._clocksync.connect(self._serial)
@@ -820,17 +892,21 @@ class MCU:
         self.register_response(self._handle_shutdown, 'is_shutdown')
         self.register_response(self._handle_mcu_stats, 'stats')
     # Config creation helpers
+
     def setup_pin(self, pin_type, pin_params):
         pcs = {'endstop': MCU_endstop,
                'digital_out': MCU_digital_out, 'pwm': MCU_pwm, 'adc': MCU_adc}
         if pin_type not in pcs:
             raise pins.error("pin type %s not supported on mcu" % (pin_type,))
         return pcs[pin_type](self, pin_params)
+
     def create_oid(self):
         self._oid_count += 1
         return self._oid_count - 1
+
     def register_config_callback(self, cb):
         self._config_callbacks.append(cb)
+
     def add_config_cmd(self, cmd, is_init=False, on_restart=False):
         if is_init:
             self._init_cmds.append(cmd)
@@ -838,78 +914,103 @@ class MCU:
             self._restart_cmds.append(cmd)
         else:
             self._config_cmds.append(cmd)
+
     def get_query_slot(self, oid):
         slot = self.seconds_to_clock(oid * .01)
         t = int(self.estimated_print_time(self._reactor.monotonic()) + 1.5)
         return self.print_time_to_clock(t) + slot
+
     def register_stepqueue(self, stepqueue):
         self._stepqueues.append(stepqueue)
+
     def request_move_queue_slot(self):
         self._reserved_move_slots += 1
+
     def seconds_to_clock(self, time):
         return int(time * self._mcu_freq)
+
     def get_max_stepper_error(self):
         return self._max_stepper_error
     # Wrapper functions
+
     def get_printer(self):
         return self._printer
+
     def get_name(self):
         return self._name
+
     def register_response(self, cb, msg, oid=None):
         self._serial.register_response(cb, msg, oid)
+
     def alloc_command_queue(self):
         return self._serial.alloc_command_queue()
+
     def lookup_command(self, msgformat, cq=None):
         return CommandWrapper(self._serial, msgformat, cq)
+
     def lookup_query_command(self, msgformat, respformat, oid=None,
                              cq=None, is_async=False):
         return CommandQueryWrapper(self._serial, msgformat, respformat, oid,
                                    cq, is_async, self._printer.command_error)
+
     def try_lookup_command(self, msgformat):
         try:
             return self.lookup_command(msgformat)
         except self._serial.get_msgparser().error as e:
             return None
+
     def get_enumerations(self):
         return self._serial.get_msgparser().get_enumerations()
+
     def get_constants(self):
         return self._serial.get_msgparser().get_constants()
+
     def get_constant_float(self, name):
         return self._serial.get_msgparser().get_constant_float(name)
+
     def print_time_to_clock(self, print_time):
         return self._clocksync.print_time_to_clock(print_time)
+
     def clock_to_print_time(self, clock):
         return self._clocksync.clock_to_print_time(clock)
+
     def estimated_print_time(self, eventtime):
         return self._clocksync.estimated_print_time(eventtime)
+
     def clock32_to_clock64(self, clock32):
         return self._clocksync.clock32_to_clock64(clock32)
     # Restarts
+
     def _disconnect(self):
         self._serial.disconnect()
         self._steppersync = None
+
     def _shutdown(self, force=False):
         if (self._emergency_stop_cmd is None
-            or (self._is_shutdown and not force)):
+                or (self._is_shutdown and not force)):
             return
         self._emergency_stop_cmd.send()
+
     def _restart_arduino(self):
         logging.info("Attempting MCU '%s' reset", self._name)
         self._disconnect()
         serialhdl.arduino_reset(self._serialport, self._reactor)
+
     def _restart_cheetah(self):
         logging.info("Attempting MCU '%s' Cheetah-style reset", self._name)
         self._disconnect()
         serialhdl.cheetah_reset(self._serialport, self._reactor)
+
     def _restart_via_command(self):
         if ((self._reset_cmd is None and self._config_reset_cmd is None)
-            or not self._clocksync.is_active()):
+                or not self._clocksync.is_active()):
             logging.info("Unable to issue reset command on MCU '%s'",
                          self._name)
             return
         if self._reset_cmd is None:
             # Attempt reset via config_reset command
-            logging.info("Attempting MCU '%s' config_reset command", self._name)
+            logging.info(
+                "Attempting MCU '%s' config_reset command", self._name)
             self._is_shutdown = True
             self._shutdown(force=True)
             self._reactor.pause(self._reactor.monotonic() + 0.015)
@@ -926,6 +1027,7 @@ class MCU:
     #     chelper.run_hub_ctrl(0)
     #     self._reactor.pause(self._reactor.monotonic() + 2.)
     #     chelper.run_hub_ctrl(1)
+
     def _firmware_restart(self, force=False):
         if self._is_mcu_bridge and not force:
             return
@@ -938,49 +1040,58 @@ class MCU:
             self._restart_cheetah()
         else:
             self._restart_arduino()
+
     def _firmware_restart_bridge(self):
         self._firmware_restart(True)
     # Misc external commands
+
     def is_fileoutput(self):
         return self._printer.get_start_args().get('debugoutput') is not None
+
     def is_shutdown(self):
         return self._is_shutdown
+
     def get_shutdown_clock(self):
         return self._shutdown_clock
+
     def flush_moves(self, print_time):
         if self._steppersync is None:
             return
         clock = self.print_time_to_clock(print_time)
         if clock < 0:
             return
-        ret = chelper.steppersync_flush(self._steppersync, clock)
+        ret = _klippy.steppersync_flush(self._steppersync, clock)
         if ret:
             raise error("Internal error in MCU '%s' stepcompress"
                         % (self._name,))
+
     def check_active(self, print_time, eventtime):
         if self._steppersync is None:
             return
         offset, freq = self._clocksync.calibrate_clock(print_time, eventtime)
-        chelper.steppersync_set_time(self._steppersync, offset, freq)
+        _klippy.steppersync_set_time(self._steppersync, offset, freq)
         if (self._clocksync.is_active() or self.is_fileoutput()
-            or self._is_timeout):
+                or self._is_timeout):
             return
         self._is_timeout = True
         logging.info("Timeout with MCU '%s' (eventtime=%f)",
                      self._name, eventtime)
         self._printer.invoke_shutdown("Lost communication with MCU '%s'" % (
             self._name,))
+
     def get_status(self, eventtime=None):
         return dict(self._get_status_info)
+
     def stats(self, eventtime):
         load = "mcu_awake=%.03f mcu_task_avg=%.06f mcu_task_stddev=%.06f" % (
             self._mcu_tick_awake, self._mcu_tick_avg, self._mcu_tick_stddev)
         stats = ' '.join([load, self._serial.stats(eventtime),
                           self._clocksync.stats(eventtime)])
         parts = [s.split('=', 1) for s in stats.split()]
-        last_stats = {k:(float(v) if '.' in v else int(v)) for k, v in parts}
+        last_stats = {k: (float(v) if '.' in v else int(v)) for k, v in parts}
         self._get_status_info['last_stats'] = last_stats
         return False, '%s: %s' % (self._name, stats)
+
 
 Common_MCU_errors = {
     ("Timer too close",): """
@@ -1003,12 +1114,14 @@ This generally occurs in response to an M112 G-Code command
 or in response to an internal error in the host software.""",
 }
 
+
 def error_help(msg):
     for prefixes, help_msg in Common_MCU_errors.items():
         for prefix in prefixes:
             if msg.startswith(prefix):
                 return help_msg
     return ""
+
 
 def add_printer_objects(config):
     printer = config.get_printer()
@@ -1018,6 +1131,7 @@ def add_printer_objects(config):
     for s in config.get_prefix_sections('mcu '):
         printer.add_object(s.section, MCU(
             s, clocksync.SecondarySync(reactor, mainsync)))
+
 
 def get_printer_mcu(printer, name):
     if name == 'mcu':
