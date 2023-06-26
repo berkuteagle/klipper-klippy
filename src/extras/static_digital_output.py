@@ -13,5 +13,6 @@ class PrinterStaticDigitalOut:
             mcu_pin = ppins.setup_pin('digital_out', pin_desc)
             mcu_pin.setup_start_value(1, 1, True)
 
+
 def load_config_prefix(config):
     return PrinterStaticDigitalOut(config)

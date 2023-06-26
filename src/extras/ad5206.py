@@ -3,7 +3,8 @@
 # Copyright (C) 2017,2018  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-from . import bus
+from klippy.extras import bus
+
 
 class ad5206:
     def __init__(self, config):
@@ -15,8 +16,10 @@ class ad5206:
                                   minval=0., maxval=scale)
             if val is not None:
                 self.set_register(i, int(val * 256. / scale + .5))
+
     def set_register(self, reg, value):
         self.spi.spi_send([reg, value])
+
 
 def load_config_prefix(config):
     return ad5206(config)

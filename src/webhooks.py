@@ -3,8 +3,15 @@
 # Copyright (C) 2020 Eric Callahan <arksine.code@gmail.com>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license
-import logging, socket, os, sys, errno, json, collections
-from . import gcode
+import logging
+import socket
+import os
+import sys
+import errno
+import json
+import collections
+
+from klippy import gcode
 
 REQUEST_LOG_SIZE = 20
 
@@ -26,6 +33,7 @@ if sys.version_info.major < 3:
                     for k, v in data.items()}
         return data
 
+
 class WebRequestError(gcode.CommandError):
     def __init__(self, message,):
         Exception.__init__(self, message)
@@ -35,11 +43,14 @@ class WebRequestError(gcode.CommandError):
             'error': 'WebRequestError',
             'message': str(self)}
 
+
 class Sentinel:
     pass
 
+
 class WebRequest:
     error = WebRequestError
+
     def __init__(self, client_conn, request):
         self.client_conn = client_conn
         base_request = json.loads(request, object_hook=json_loads_byteify)
@@ -61,7 +72,7 @@ class WebRequest:
         if value is Sentinel:
             raise WebRequestError("Missing Argument [%s]" % (item,))
         if (types is not None and type(value) not in types
-            and item in self.params):
+                and item in self.params):
             raise WebRequestError("Invalid Argument Type [%s]" % (item,))
         return value
 
@@ -100,6 +111,7 @@ class WebRequest:
             # send, default response is {}
             self.response = {}
         return {"id": self.id, rtype: self.response}
+
 
 class ServerSocket:
     def __init__(self, webhooks, printer):
@@ -171,6 +183,7 @@ class ServerSocket:
                     logging.info("Closing unresponsive client %s", client.uid)
                     client.close()
         return False, ""
+
 
 class ClientConnection:
     def __init__(self, server, sock):
@@ -300,6 +313,7 @@ class ClientConnection:
             self.is_blocking = False
         self.send_buffer = self.send_buffer[sent:]
 
+
 class WebHooks:
     def __init__(self, printer):
         self.printer = printer
@@ -409,6 +423,7 @@ class WebHooks:
                 "No active connections for method '%s'" % (method))
         self._remote_methods[method] = valid_conns
 
+
 class GCodeHelper:
     def __init__(self, printer):
         self.printer = printer
@@ -425,14 +440,19 @@ class GCodeHelper:
                              self._handle_firmware_restart)
         wh.register_endpoint("gcode/subscribe_output",
                              self._handle_subscribe_output)
+
     def _handle_help(self, web_request):
         web_request.send(self.gcode.get_command_help())
+
     def _handle_script(self, web_request):
         self.gcode.run_script(web_request.get_str('script'))
+
     def _handle_restart(self, web_request):
         self.gcode.run_script('restart')
+
     def _handle_firmware_restart(self, web_request):
         self.gcode.run_script('firmware_restart')
+
     def _output_callback(self, msg):
         for cconn, template in list(self.clients.items()):
             if cconn.is_closed():
@@ -441,6 +461,7 @@ class GCodeHelper:
             tmp = dict(template)
             tmp['params'] = {'response': msg}
             cconn.send(tmp)
+
     def _handle_subscribe_output(self, web_request):
         cconn = web_request.get_client_connection()
         template = web_request.get_dict('response_template', {})
@@ -449,7 +470,9 @@ class GCodeHelper:
             self.gcode.register_output_handler(self._output_callback)
             self.is_output_registered = True
 
+
 SUBSCRIPTION_REFRESH_TIME = .25
+
 
 class QueryStatusHelper:
     def __init__(self, printer):
@@ -463,10 +486,12 @@ class QueryStatusHelper:
         webhooks.register_endpoint("objects/list", self._handle_list)
         webhooks.register_endpoint("objects/query", self._handle_query)
         webhooks.register_endpoint("objects/subscribe", self._handle_subscribe)
+
     def _handle_list(self, web_request):
         objects = [n for n, o in self.printer.lookup_objects()
                    if hasattr(o, 'get_status')]
         web_request.send({'objects': objects})
+
     def _do_query(self, eventtime):
         last_query = self.last_query
         query = self.last_query = {}
@@ -513,6 +538,7 @@ class QueryStatusHelper:
             self.query_timer = None
             return reactor.NEVER
         return eventtime + SUBSCRIPTION_REFRESH_TIME
+
     def _handle_query(self, web_request, is_subscribe=False):
         objects = web_request.get_dict('objects')
         # Validate subscription format
@@ -540,8 +566,10 @@ class QueryStatusHelper:
         web_request.send(msg['params'])
         if is_subscribe:
             self.clients[cconn] = (cconn, objects, cconn.send, template)
+
     def _handle_subscribe(self, web_request):
         self._handle_query(web_request, is_subscribe=True)
+
 
 def add_early_printer_objects(printer):
     printer.add_object('webhooks', WebHooks(printer))

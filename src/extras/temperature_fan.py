@@ -3,12 +3,13 @@
 # Copyright (C) 2016-2020  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-from . import fan
+from klippy.extras import fan
 
 KELVIN_TO_CELSIUS = -273.15
 MAX_FAN_TIME = 5.0
 AMBIENT_TEMP = 25.
 PID_PARAM_BASE = 255.
+
 
 class TemperatureFan:
     def __init__(self, config):
@@ -61,15 +62,20 @@ class TemperatureFan:
         self.next_speed_time = speed_time + 0.75 * MAX_FAN_TIME
         self.last_speed_value = value
         self.fan.set_speed(speed_time, value)
+
     def temperature_callback(self, read_time, temp):
         self.last_temp = temp
         self.control.temperature_callback(read_time, temp)
+
     def get_temp(self, eventtime):
         return self.last_temp, self.target_temp
+
     def get_min_speed(self):
         return self.min_speed
+
     def get_max_speed(self):
         return self.max_speed
+
     def get_status(self, eventtime):
         status = self.fan.get_status(eventtime)
         status["temperature"] = round(self.last_temp, 2)
@@ -77,6 +83,7 @@ class TemperatureFan:
         return status
     cmd_SET_TEMPERATURE_FAN_TARGET_help = \
         "Sets a temperature fan target and fan speed limits"
+
     def cmd_SET_TEMPERATURE_FAN_TARGET(self, gcmd):
         temp = gcmd.get_float('TARGET', self.target_temp_conf)
         self.set_temp(temp)
@@ -114,15 +121,17 @@ class TemperatureFan:
 # Bang-bang control algo
 ######################################################################
 
+
 class ControlBangBang:
     def __init__(self, temperature_fan, config):
         self.temperature_fan = temperature_fan
         self.max_delta = config.getfloat('max_delta', 2.0, above=0.)
         self.heating = False
+
     def temperature_callback(self, read_time, temp):
         current_temp, target_temp = self.temperature_fan.get_temp(read_time)
         if (self.heating
-            and temp >= target_temp+self.max_delta):
+                and temp >= target_temp+self.max_delta):
             self.heating = False
         elif (not self.heating
               and temp <= target_temp-self.max_delta):
@@ -137,8 +146,10 @@ class ControlBangBang:
 # Proportional Integral Derivative (PID) control algo
 ######################################################################
 
+
 PID_SETTLE_DELTA = 1.
 PID_SETTLE_SLOPE = .1
+
 
 class ControlPID:
     def __init__(self, temperature_fan, config):
@@ -154,6 +165,7 @@ class ControlPID:
         self.prev_temp_time = 0.
         self.prev_temp_deriv = 0.
         self.prev_temp_integ = 0.
+
     def temperature_callback(self, read_time, temp):
         current_temp, target_temp = self.temperature_fan.get_temp(read_time)
         time_diff = read_time - self.prev_temp_time
@@ -180,6 +192,7 @@ class ControlPID:
         self.prev_temp_deriv = temp_deriv
         if co == bounded_co:
             self.prev_temp_integ = temp_integ
+
 
 def load_config_prefix(config):
     return TemperatureFan(config)

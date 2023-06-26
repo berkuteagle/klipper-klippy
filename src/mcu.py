@@ -3,12 +3,14 @@
 # Copyright (C) 2016-2023  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
+import sys
 import os
 import zlib
 import logging
 import math
-from . import serialhdl, msgproto, pins, clocksync
-from . import _klippy
+
+from klippy import serialhdl, msgproto, pins, clocksync
+from klippy._chelper import ffi, lib
 
 
 class error(Exception):
@@ -182,10 +184,10 @@ class MCU_trsync:
         state_cmd = mcu.lookup_command(
             "trsync_state oid=%c can_trigger=%c trigger_reason=%c clock=%u")
         state_tag = state_cmd.get_command_tag()
-        self._trdispatch_mcu = _klippy.trdispatch_mcu_alloc(
+        self._trdispatch_mcu = ffi.gc(lib.trdispatch_mcu_alloc(
             self._trdispatch, mcu._serial.get_serialqueue(),  # XXX
             self._cmd_queue, self._oid, set_timeout_tag, trigger_tag,
-            state_tag)
+            state_tag), lib.free)
 
     def _shutdown(self):
         tc = self._trigger_completion
@@ -216,8 +218,8 @@ class MCU_trsync:
         expire_clock = clock + expire_ticks
         report_ticks = self._mcu.seconds_to_clock(expire_timeout * .4)
         min_extend_ticks = self._mcu.seconds_to_clock(expire_timeout * .4 * .8)
-        _klippy.trdispatch_mcu_setup(self._trdispatch_mcu, clock, expire_clock,
-                             expire_ticks, min_extend_ticks)
+        lib.trdispatch_mcu_setup(self._trdispatch_mcu, clock, expire_clock,
+                                 expire_ticks, min_extend_ticks)
         self._mcu.register_response(self._handle_trsync_state,
                                     "trsync_state", self._oid)
         self._trsync_start_cmd.send([self._oid, clock, report_ticks,
@@ -259,7 +261,8 @@ class MCU_endstop:
         self._mcu.register_config_callback(self._build_config)
         self._trigger_completion = None
         self._rest_ticks = 0
-        self._trdispatch = _klippy.trdispatch_alloc()
+        self._trdispatch = ffi.gc(
+            lib.trdispatch_alloc(), lib.free)
         self._trsyncs = [MCU_trsync(mcu, self._trdispatch)]
 
     def get_mcu(self):
@@ -318,7 +321,7 @@ class MCU_endstop:
         for trsync in self._trsyncs:
             trsync.start(print_time, self._trigger_completion, expire_timeout)
         etrsync = self._trsyncs[0]
-        _klippy.trdispatch_start(self._trdispatch, etrsync.REASON_HOST_REQUEST)
+        lib.trdispatch_start(self._trdispatch, etrsync.REASON_HOST_REQUEST)
         self._home_cmd.send(
             [self._oid, clock, self._mcu.seconds_to_clock(sample_time),
              sample_count, rest_ticks, triggered ^ self._invert,
@@ -332,7 +335,7 @@ class MCU_endstop:
             self._trigger_completion.complete(True)
         self._trigger_completion.wait()
         self._home_cmd.send([self._oid, 0, 0, 0, 0, 0, 0, 0])
-        _klippy.trdispatch_stop(self._trdispatch)
+        lib.trdispatch_stop(self._trdispatch)
         res = [trsync.stop() for trsync in self._trsyncs]
         if any([r == etrsync.REASON_COMMS_TIMEOUT for r in res]):
             return -1.
@@ -828,10 +831,12 @@ class MCU:
         move_count = config_params['move_count']
         if move_count < self._reserved_move_slots:
             raise error("Too few moves available on MCU '%s'" % (self._name,))
-        self._steppersync = _klippy.steppersync_alloc(self._serial.get_serialqueue(),
-                                              self._stepqueues, len(
-                                                  self._stepqueues),
-                                              move_count-self._reserved_move_slots, self._mcu_freq)
+        self._steppersync = ffi.gc(
+            lib.steppersync_alloc(self._serial.get_serialqueue(),
+                                  self._stepqueues, len(self._stepqueues),
+                                  move_count-self._reserved_move_slots),
+            lib.steppersync_free)
+        lib.steppersync_set_time(self._steppersync, 0., self._mcu_freq)
         # Log config information
         move_msg = "Configured MCU '%s' (%d moves)" % (self._name, move_count)
         logging.info(move_msg)
@@ -1021,19 +1026,19 @@ class MCU:
             self._reset_cmd.send()
         self._reactor.pause(self._reactor.monotonic() + 0.015)
         self._disconnect()
-    # def _restart_rpi_usb(self):
-    #     logging.info("Attempting MCU '%s' reset via rpi usb power", self._name)
-    #     self._disconnect()
-    #     chelper.run_hub_ctrl(0)
-    #     self._reactor.pause(self._reactor.monotonic() + 2.)
-    #     chelper.run_hub_ctrl(1)
+
+    def _restart_rpi_usb(self):
+        logging.info("Attempting MCU '%s' reset via rpi usb power", self._name)
+        self._disconnect()
+        # chelper.run_hub_ctrl(0)
+        self._reactor.pause(self._reactor.monotonic() + 2.)
+        # chelper.run_hub_ctrl(1)
 
     def _firmware_restart(self, force=False):
         if self._is_mcu_bridge and not force:
             return
         if self._restart_method == 'rpi_usb':
-            pass
-            # self._restart_rpi_usb()
+            self._restart_rpi_usb()
         elif self._restart_method == 'command':
             self._restart_via_command()
         elif self._restart_method == 'cheetah':
@@ -1060,7 +1065,7 @@ class MCU:
         clock = self.print_time_to_clock(print_time)
         if clock < 0:
             return
-        ret = _klippy.steppersync_flush(self._steppersync, clock)
+        ret = lib.steppersync_flush(self._steppersync, clock)
         if ret:
             raise error("Internal error in MCU '%s' stepcompress"
                         % (self._name,))
@@ -1069,7 +1074,7 @@ class MCU:
         if self._steppersync is None:
             return
         offset, freq = self._clocksync.calibrate_clock(print_time, eventtime)
-        _klippy.steppersync_set_time(self._steppersync, offset, freq)
+        lib.steppersync_set_time(self._steppersync, offset, freq)
         if (self._clocksync.is_active() or self.is_fileoutput()
                 or self._is_timeout):
             return

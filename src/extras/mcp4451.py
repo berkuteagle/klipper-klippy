@@ -3,9 +3,10 @@
 # Copyright (C) 2018  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-from . import bus
+from klippy.extras import bus
 
 WiperRegisters = [0x00, 0x01, 0x06, 0x07]
+
 
 class mcp4451:
     def __init__(self, config):
@@ -23,8 +24,10 @@ class mcp4451:
             if val is not None:
                 val = int(val * 255. / scale + .5)
                 self.set_register(WiperRegisters[i], val)
+
     def set_register(self, reg, value):
         self.i2c.i2c_write([(reg << 4) | ((value >> 8) & 0x03), value])
+
 
 def load_config_prefix(config):
     return mcp4451(config)

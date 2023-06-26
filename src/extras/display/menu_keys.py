@@ -9,6 +9,7 @@
 LONG_PRESS_DURATION = 0.800
 TIMER_DELAY = .200
 
+
 class MenuKeys:
     def __init__(self, config, callback):
         self.printer = config.get_printer()

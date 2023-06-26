@@ -3,8 +3,8 @@
 # Copyright (C) 2021  Fabrice Gallet <tircown@gmail.com>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import math
-import chelper
+from klippy._chelper import ffi, lib
+
 
 class DualCarriages:
     def __init__(self, printer, rail_0, rail_1, axis):
@@ -15,8 +15,9 @@ class DualCarriages:
         self.printer.add_object('dual_carriage', self)
         gcode = self.printer.lookup_object('gcode')
         gcode.register_command(
-                   'SET_DUAL_CARRIAGE', self.cmd_SET_DUAL_CARRIAGE,
-                   desc=self.cmd_SET_DUAL_CARRIAGE_help)
+            'SET_DUAL_CARRIAGE', self.cmd_SET_DUAL_CARRIAGE,
+            desc=self.cmd_SET_DUAL_CARRIAGE_help)
+
     def toggle_active_dc_rail(self, index):
         toolhead = self.printer.lookup_object('toolhead')
         toolhead.flush_step_generation()
@@ -30,17 +31,19 @@ class DualCarriages:
                 kin.override_rail(3, dc_rail)
             elif dc.is_active() is False:
                 newpos = pos[:self.axis] + [dc.axis_position] \
-                            + pos[self.axis+1:]
+                    + pos[self.axis+1:]
                 dc.activate(newpos)
                 kin.override_rail(self.axis, dc_rail)
                 toolhead.set_position(newpos)
                 kin.update_limits(self.axis, dc_rail.get_range())
+
     def get_status(self, eventtime=None):
         dc0, dc1 = self.dc
         if (dc0.is_active() is True):
-            return { 'mode': 'FULL_CONTROL', 'active_carriage': 'CARRIAGE_0' }
+            return {'mode': 'FULL_CONTROL', 'active_carriage': 'CARRIAGE_0'}
         else:
-            return { 'mode': 'FULL_CONTROL', 'active_carriage': 'CARRIAGE_1' }
+            return {'mode': 'FULL_CONTROL', 'active_carriage': 'CARRIAGE_1'}
+
     def save_idex_state(self):
         dc0, dc1 = self.dc
         if (dc0.is_active() is True):
@@ -51,27 +54,31 @@ class DualCarriages:
             'mode': mode,
             'active_carriage': active_carriage,
             'axis_positions': (dc0.axis_position, dc1.axis_position)
-            }
+        }
+
     def restore_idex_state(self):
         if self.saved_state is not None:
             # set carriage 0 active
             if (self.saved_state['active_carriage'] == 'CARRIAGE_0'
-                        and self.dc[0].is_active() is False):
+                    and self.dc[0].is_active() is False):
                 self.toggle_active_dc_rail(0)
             # set carriage 1 active
             elif (self.saved_state['active_carriage'] == 'CARRIAGE_1'
-                        and self.dc[1].is_active() is False):
+                  and self.dc[1].is_active() is False):
                 self.toggle_active_dc_rail(1)
     cmd_SET_DUAL_CARRIAGE_help = "Set which carriage is active"
+
     def cmd_SET_DUAL_CARRIAGE(self, gcmd):
         index = gcmd.get_int('CARRIAGE', minval=0, maxval=1)
-        if (not(self.dc[0].is_active() == self.dc[1].is_active() == True)
-                    and self.dc[index].is_active() is False):
+        if (not (self.dc[0].is_active() == self.dc[1].is_active() == True)
+                and self.dc[index].is_active() is False):
             self.toggle_active_dc_rail(index)
 
+
 class DualCarriagesRail:
-    ACTIVE=1
-    INACTIVE=2
+    ACTIVE = 1
+    INACTIVE = 2
+
     def __init__(self, printer, rail, axis, active, stepper_alloc_active,
                  stepper_alloc_inactive=None):
         self.printer = printer
@@ -85,8 +92,10 @@ class DualCarriagesRail:
         self.stepper_inactive_sk = {}
         for s in rail.get_steppers():
             self._save_sk(self.status, s, s.get_stepper_kinematics())
+
     def _alloc_sk(self, alloc_func, *params):
-        return getattr(chelper, alloc_func)(*params)
+        return ffi.gc(getattr(lib, alloc_func)(*params), lib.free)
+
     def _get_sk(self, status, stepper):
         sk = None
         if status == self.ACTIVE:
@@ -100,11 +109,13 @@ class DualCarriagesRail:
                 sk = self._alloc_sk(*self.stepper_alloc_inactive)
                 self._save_sk(status, stepper, sk)
         return sk
+
     def _save_sk(self, status, stepper, sk):
         if status == self.ACTIVE:
             self.stepper_active_sk[stepper] = sk
         elif status == self.INACTIVE:
             self.stepper_inactive_sk[stepper] = sk
+
     def _update_stepper_alloc(self, position, active=True):
         toolhead = self.printer.lookup_object('toolhead')
         self.axis_position = position[self.axis]
@@ -119,11 +130,15 @@ class DualCarriagesRail:
             self._save_sk(old_status, s, old_sk)
         self.rail.set_position(position)
         self.rail.set_trapq(toolhead.get_trapq())
+
     def get_rail(self):
         return self.rail
+
     def is_active(self):
         return self.status == self.ACTIVE
+
     def activate(self, position):
         self._update_stepper_alloc(position, active=True)
+
     def inactivate(self, position):
         self._update_stepper_alloc(position, active=False)

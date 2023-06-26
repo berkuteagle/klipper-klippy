@@ -4,7 +4,8 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
-from . import bus
+
+from klippy.extras import bus
 
 REPORT_TIME = .8
 BME280_CHIP_ADDR = 0x76
@@ -208,13 +209,15 @@ class BME280:
 
         if self.chip_type == 'BME680':
             self.max_sample_time = 0.5
-            self.sample_timer = self.reactor.register_timer(self._sample_bme680)
+            self.sample_timer = self.reactor.register_timer(
+                self._sample_bme680)
             self.chip_registers = BME680_REGS
         else:
             self.max_sample_time = \
                 (1.25 + (2.3 * self.os_temp) + ((2.3 * self.os_pres) + .575)
                  + ((2.3 * self.os_hum) + .575)) / 1000
-            self.sample_timer = self.reactor.register_timer(self._sample_bme280)
+            self.sample_timer = self.reactor.register_timer(
+                self._sample_bme280)
             self.chip_registers = BME280_REGS
 
         if self.chip_type in ('BME680', 'BME280'):
@@ -276,7 +279,8 @@ class BME280:
         meas = self.os_temp << 5 | self.os_pres << 2
         self.write_register('CTRL_MEAS', [meas])
 
-        gas_wait_0 = self._calculate_gas_heater_duration(self.gas_heat_duration)
+        gas_wait_0 = self._calculate_gas_heater_duration(
+            self.gas_heat_duration)
         self.write_register('GAS_WAIT_0', [gas_wait_0])
         res_heat_0 = self._calculate_gas_heater_resistance(self.gas_heat_temp)
         self.write_register('RES_HEAT_0', [res_heat_0])
@@ -338,8 +342,8 @@ class BME280:
         dig = self.dig
         var1 = ((raw_temp / 16384. - (dig['T1'] / 1024.)) * dig['T2'])
         var2 = (
-                ((raw_temp / 131072.) - (dig['T1'] / 8192.)) *
-                ((raw_temp / 131072.) - (dig['T1'] / 8192.)) * dig['T3'])
+            ((raw_temp / 131072.) - (dig['T1'] / 8192.)) *
+            ((raw_temp / 131072.) - (dig['T1'] / 8192.)) * dig['T3'])
         self.t_fine = var1 + var2
         return self.t_fine / 5120.0
 
@@ -378,7 +382,7 @@ class BME280:
             var1 = dig['P9'] * pressure * pressure / 2147483648.
             var2 = pressure * dig['P8'] / 32768.
             var3 = (pressure / 256.) * (pressure / 256.) * (pressure / 256.) * (
-                    dig['P10'] / 131072.)
+                dig['P10'] / 131072.)
             return pressure + (var1 + var2 + var3 + (dig['P7'] * 128.)) / 16.
 
     def _compensate_humidity_bme280(self, raw_humidity):
@@ -386,7 +390,7 @@ class BME280:
         t_fine = self.t_fine
         humidity = t_fine - 76800.
         h1 = (
-                raw_humidity - (
+            raw_humidity - (
                 dig['H4'] * 64. + dig['H5'] / 16384. * humidity))
         h2 = (dig['H2'] / 65536. * (1. + dig['H6'] / 67108864. * humidity *
                                     (1. + dig['H3'] / 67108864. * humidity)))
@@ -399,7 +403,7 @@ class BME280:
         temp_comp = self.temp
 
         var1 = raw_humidity - (
-                (dig['H1'] * 16.) + ((dig['H3'] / 2.) * temp_comp))
+            (dig['H1'] * 16.) + ((dig['H3'] / 2.) * temp_comp))
         var2 = var1 * ((dig['H2'] / 262144.) *
                        (1. + ((dig['H4'] / 16384.) * temp_comp) +
                         ((dig['H5'] / 1048576.) * temp_comp * temp_comp)))
@@ -411,9 +415,9 @@ class BME280:
     def _compensate_gas(self, gas_raw, gas_range):
         gas_switching_error = self.read_register('RANGE_SWITCHING_ERROR', 1)[0]
         var1 = (1340. + 5. * gas_switching_error) * \
-               BME680_GAS_CONSTANTS[gas_range][0]
+            BME680_GAS_CONSTANTS[gas_range][0]
         gas = var1 * BME680_GAS_CONSTANTS[gas_range][1] / (
-                gas_raw - 512. + var1)
+            gas_raw - 512. + var1)
         return gas
 
     def _calculate_gas_heater_resistance(self, target_temp):

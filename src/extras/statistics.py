@@ -3,7 +3,10 @@
 # Copyright (C) 2018-2021  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import os, time, logging
+import os
+import time
+import logging
+
 
 class PrinterSysStats:
     def __init__(self, config):
@@ -17,10 +20,12 @@ class PrinterSysStats:
         except:
             pass
         printer.register_event_handler("klippy:disconnect", self._disconnect)
+
     def _disconnect(self):
         if self.mem_file is not None:
             self.mem_file.close()
             self.mem_file = None
+
     def stats(self, eventtime):
         # Get core usage stats
         ptime = time.process_time()
@@ -44,10 +49,12 @@ class PrinterSysStats:
             except:
                 pass
         return (False, msg)
+
     def get_status(self, eventtime):
         return {'sysload': self.last_load_avg,
                 'cputime': self.total_process_time,
                 'memavail': self.last_mem_avail}
+
 
 class PrinterStats:
     def __init__(self, config):
@@ -56,18 +63,21 @@ class PrinterStats:
         self.stats_timer = reactor.register_timer(self.generate_stats)
         self.stats_cb = []
         self.printer.register_event_handler("klippy:ready", self.handle_ready)
+
     def handle_ready(self):
         self.stats_cb = [o.stats for n, o in self.printer.lookup_objects()
                          if hasattr(o, 'stats')]
         if self.printer.get_start_args().get('debugoutput') is None:
             reactor = self.printer.get_reactor()
             reactor.update_timer(self.stats_timer, reactor.NOW)
+
     def generate_stats(self, eventtime):
         stats = [cb(eventtime) for cb in self.stats_cb]
         if max([s[0] for s in stats]):
             logging.info("Stats %.1f: %s", eventtime,
                          ' '.join([s[1] for s in stats]))
         return eventtime + 1.
+
 
 def load_config(config):
     config.get_printer().add_object('system_stats', PrinterSysStats(config))

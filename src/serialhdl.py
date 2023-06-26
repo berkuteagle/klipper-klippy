@@ -8,8 +8,10 @@ import threading
 import os
 import serial
 
-from . import msgproto, util
-from ._klippy import new_char_array, new_pull_queue_message, serialqueue_pull, serialqueue_alloc, serialqueue_set_wire_frequency, serialqueue_set_receive_window, serialqueue_alloc, serialqueue_set_clock_est, serialqueue_exit, serialqueue_get_stats, char_array_to_string, serialqueue_send, serialqueue_alloc_commandqueue, new_pull_queue_message_array, serialqueue_extract_old
+from klippy import msgproto, util
+
+from klippy._chelper import ffi, lib
+
 
 class error(Exception):
     pass
@@ -25,7 +27,7 @@ class SerialReader:
         # C interface
         self.serialqueue = None
         self.default_cmd_queue = self.alloc_command_queue()
-        self.stats_buf = new_char_array(4096)
+        self.stats_buf = ffi.new('char[4096]')
         # Threading
         self.lock = threading.Lock()
         self.background_thread = None
@@ -38,9 +40,9 @@ class SerialReader:
         self.pending_notifications = {}
 
     def _bg_thread(self):
-        response = new_pull_queue_message()
+        response = ffi.new('struct pull_queue_message *')
         while 1:
-            serialqueue_pull(self.serialqueue, response)
+            lib.serialqueue_pull(self.serialqueue, response)
             count = response.len
             if count < 0:
                 break
@@ -85,8 +87,10 @@ class SerialReader:
 
     def _start_session(self, serial_dev, serial_fd_type=b'u', client_id=0):
         self.serial_dev = serial_dev
-        self.serialqueue = serialqueue_alloc(
-            serial_dev.fileno(), serial_fd_type, client_id)
+        self.serialqueue = ffi.gc(
+            lib.serialqueue_alloc(serial_dev.fileno(),
+                                  serial_fd_type, client_id),
+            lib.serialqueue_free)
         self.background_thread = threading.Thread(target=self._bg_thread)
         self.background_thread.start()
         # Obtain and load the data dictionary from the firmware
@@ -106,10 +110,11 @@ class SerialReader:
         else:
             wire_freq = msgparser.get_constant_float('SERIAL_BAUD', None)
         if wire_freq is not None:
-            serialqueue_set_wire_frequency(self.serialqueue, wire_freq)
+            lib.serialqueue_set_wire_frequency(self.serialqueue,
+                                               wire_freq)
         receive_window = msgparser.get_constant_int('RECEIVE_WINDOW', None)
         if receive_window is not None:
-            serialqueue_set_receive_window(
+            lib.serialqueue_set_receive_window(
                 self.serialqueue, receive_window)
         return True
 
@@ -206,15 +211,17 @@ class SerialReader:
     def connect_file(self, debugoutput, dictionary, pace=False):
         self.serial_dev = debugoutput
         self.msgparser.process_identify(dictionary, decompress=False)
-        self.serialqueue = serialqueue_alloc(self.serial_dev.fileno(), b'f', 0)
+        self.serialqueue = ffi.gc(
+            lib.serialqueue_alloc(self.serial_dev.fileno(), b'f', 0),
+            lib.serialqueue_free)
 
     def set_clock_est(self, freq, conv_time, conv_clock, last_clock):
-        serialqueue_set_clock_est(
+        lib.serialqueue_set_clock_est(
             self.serialqueue, freq, conv_time, conv_clock, last_clock)
 
     def disconnect(self):
         if self.serialqueue is not None:
-            serialqueue_exit(self.serialqueue)
+            lib.serialqueue_exit(self.serialqueue)
             if self.background_thread is not None:
                 self.background_thread.join()
             self.background_thread = self.serialqueue = None
@@ -228,8 +235,9 @@ class SerialReader:
     def stats(self, eventtime):
         if self.serialqueue is None:
             return ""
-        serialqueue_get_stats(self.serialqueue, self.stats_buf)
-        return char_array_to_string(self.stats_buf)
+        lib.serialqueue_get_stats(self.serialqueue,
+                                  self.stats_buf, len(self.stats_buf))
+        return str(ffi.string(self.stats_buf).decode())
 
     def get_reactor(self):
         return self.reactor
@@ -253,16 +261,16 @@ class SerialReader:
     # Command sending
 
     def raw_send(self, cmd, minclock, reqclock, cmd_queue):
-        serialqueue_send(
-            self.serialqueue, cmd_queue, cmd, minclock, reqclock, 0)
+        lib.serialqueue_send(self.serialqueue, cmd_queue,
+                             cmd, len(cmd), minclock, reqclock, 0)
 
     def raw_send_wait_ack(self, cmd, minclock, reqclock, cmd_queue):
         self.last_notify_id += 1
         nid = self.last_notify_id
         completion = self.reactor.completion()
         self.pending_notifications[nid] = completion
-        serialqueue_send(
-            self.serialqueue, cmd_queue, cmd, minclock, reqclock, nid)
+        lib.serialqueue_send(self.serialqueue, cmd_queue,
+                             cmd, len(cmd), minclock, reqclock, nid)
         params = completion.wait()
         if params is None:
             self._error("Serial connection closed")
@@ -278,17 +286,20 @@ class SerialReader:
         return src.get_response([cmd], self.default_cmd_queue)
 
     def alloc_command_queue(self):
-        return serialqueue_alloc_commandqueue()
+        return ffi.gc(lib.serialqueue_alloc_commandqueue(),
+                      lib.serialqueue_free_commandqueue)
     # Dumping debug lists
 
     def dump_debug(self):
         out = []
         out.append("Dumping serial stats: %s" % (
             self.stats(self.reactor.monotonic()),))
-        sdata = new_pull_queue_message_array(1024)
-        rdata = new_pull_queue_message_array(1024)
-        scount = serialqueue_extract_old(self.serialqueue, 1, sdata)
-        rcount = serialqueue_extract_old(self.serialqueue, 0, rdata)
+        sdata = ffi.new('struct pull_queue_message[1024]')
+        rdata = ffi.new('struct pull_queue_message[1024]')
+        scount = lib.serialqueue_extract_old(self.serialqueue, 1,
+                                             sdata, len(sdata))
+        rcount = lib.serialqueue_extract_old(self.serialqueue, 0,
+                                             rdata, len(rdata))
         out.append("Dumping send queue %d messages" % (scount,))
         for i in range(scount):
             msg = sdata[i]

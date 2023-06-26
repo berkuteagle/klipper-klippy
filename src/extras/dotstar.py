@@ -3,9 +3,10 @@
 # Copyright (C) 2019-2022  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-from . import bus
+from klippy.extras import bus
 
 BACKGROUND_PRIORITY_CLOCK = 0x7fffffff00000000
+
 
 class PrinterDotstar:
     def __init__(self, config):
@@ -29,8 +30,10 @@ class PrinterDotstar:
         self.prev_data = None
         # Register commands
         printer.register_event_handler("klippy:connect", self.handle_connect)
+
     def handle_connect(self):
         self.update_leds(self.led_helper.get_status()['color_data'], None)
+
     def update_leds(self, led_state, print_time):
         if led_state == self.prev_data:
             return
@@ -51,8 +54,10 @@ class PrinterDotstar:
         for d in [data[i:i+20] for i in range(0, len(data), 20)]:
             self.spi.spi_send(d, minclock=minclock,
                               reqclock=BACKGROUND_PRIORITY_CLOCK)
+
     def get_status(self, eventtime):
         return self.led_helper.get_status(eventtime)
+
 
 def load_config_prefix(config):
     return PrinterDotstar(config)

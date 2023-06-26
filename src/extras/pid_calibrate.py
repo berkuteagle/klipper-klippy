@@ -3,8 +3,11 @@
 # Copyright (C) 2016-2018  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import math, logging
-from . import heaters
+import math
+import logging
+
+from klippy.extras import heaters
+
 
 class PIDCalibrate:
     def __init__(self, config):
@@ -13,6 +16,7 @@ class PIDCalibrate:
         gcode.register_command('PID_CALIBRATE', self.cmd_PID_CALIBRATE,
                                desc=self.cmd_PID_CALIBRATE_help)
     cmd_PID_CALIBRATE_help = "Run PID calibration test"
+
     def cmd_PID_CALIBRATE(self, gcmd):
         heater_name = gcmd.get('HEATER')
         target = gcmd.get_float('TARGET')
@@ -49,7 +53,9 @@ class PIDCalibrate:
         configfile.set(heater_name, 'pid_Ki', "%.3f" % (Ki,))
         configfile.set(heater_name, 'pid_Kd', "%.3f" % (Kd,))
 
+
 TUNE_PID_DELTA = 5.0
+
 
 class ControlAutoTune:
     def __init__(self, heater, target):
@@ -67,12 +73,14 @@ class ControlAutoTune:
         self.pwm_samples = []
         self.temp_samples = []
     # Heater control
+
     def set_pwm(self, read_time, value):
         if value != self.last_pwm:
             self.pwm_samples.append(
                 (read_time + self.heater.get_pwm_delay(), value))
             self.last_pwm = value
         self.heater.set_pwm(read_time, value)
+
     def temperature_update(self, read_time, temp, target_temp):
         self.temp_samples.append((read_time, temp))
         # Check if the temperature has crossed the target and
@@ -96,11 +104,13 @@ class ControlAutoTune:
             if temp > self.peak:
                 self.peak = temp
                 self.peak_time = read_time
+
     def check_busy(self, eventtime, smoothed_temp, target_temp):
         if self.heating or len(self.peaks) < 12:
             return True
         return False
     # Analysis
+
     def check_peaks(self):
         self.peaks.append((self.peak, self.peak_time))
         if self.heating:
@@ -110,6 +120,7 @@ class ControlAutoTune:
         if len(self.peaks) < 4:
             return
         self.calc_pid(len(self.peaks)-1)
+
     def calc_pid(self, pos):
         temp_diff = self.peaks[pos][0] - self.peaks[pos-1][0]
         time_diff = self.peaks[pos][1] - self.peaks[pos-2][1]
@@ -126,12 +137,14 @@ class ControlAutoTune:
         logging.info("Autotune: raw=%f/%f Ku=%f Tu=%f  Kp=%f Ki=%f Kd=%f",
                      temp_diff, self.heater_max_power, Ku, Tu, Kp, Ki, Kd)
         return Kp, Ki, Kd
+
     def calc_final_pid(self):
         cycle_times = [(self.peaks[pos][1] - self.peaks[pos-2][1], pos)
                        for pos in range(4, len(self.peaks))]
         midpoint_pos = sorted(cycle_times)[len(cycle_times)//2][1]
         return self.calc_pid(midpoint_pos)
     # Offline analysis helper
+
     def write_file(self, filename):
         pwm = ["pwm: %.3f %.3f" % (time, value)
                for time, value in self.pwm_samples]
@@ -139,6 +152,7 @@ class ControlAutoTune:
         f = open(filename, "w")
         f.write('\n'.join(pwm + out))
         f.close()
+
 
 def load_config(config):
     return PIDCalibrate(config)

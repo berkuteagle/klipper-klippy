@@ -3,21 +3,28 @@
 # Copyright (C) 2020  Dmitry Butyugin <dmbutyugin@google.com>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import collections, importlib, logging, math, multiprocessing, traceback
-shaper_defs = importlib.import_module('.shaper_defs', 'extras')
+import collections
+import importlib
+import math
+import multiprocessing
+import traceback
+
+from klippy.extras.shaper_defs import SHAPER_VIBRATION_REDUCTION, DEFAULT_DAMPING_RATIO, INPUT_SHAPERS
+
 
 MIN_FREQ = 5.
 MAX_FREQ = 200.
 WINDOW_T_SEC = 0.5
 MAX_SHAPER_FREQ = 150.
 
-TEST_DAMPING_RATIOS=[0.075, 0.1, 0.15]
+TEST_DAMPING_RATIOS = [0.075, 0.1, 0.15]
 
 AUTOTUNE_SHAPERS = ['zv', 'mzv', 'ei', '2hump_ei', '3hump_ei']
 
 ######################################################################
 # Frequency response calculation and shaper auto-tuning
 ######################################################################
+
 
 class CalibrationData:
     def __init__(self, freq_bins, psd_sum, psd_x, psd_y, psd_z):
@@ -30,6 +37,7 @@ class CalibrationData:
         self._psd_map = {'x': self.psd_x, 'y': self.psd_y, 'z': self.psd_z,
                          'all': self.psd_sum}
         self.data_sets = 1
+
     def add_data(self, other):
         np = self.numpy
         joined_data_sets = self.data_sets + other.data_sets
@@ -37,25 +45,29 @@ class CalibrationData:
             # `other` data may be defined at different frequency bins,
             # interpolating to fix that.
             other_normalized = other.data_sets * np.interp(
-                    self.freq_bins, other.freq_bins, other_psd)
+                self.freq_bins, other.freq_bins, other_psd)
             psd *= self.data_sets
             psd[:] = (psd + other_normalized) * (1. / joined_data_sets)
         self.data_sets = joined_data_sets
+
     def set_numpy(self, numpy):
         self.numpy = numpy
+
     def normalize_to_frequencies(self):
         for psd in self._psd_list:
             # Avoid division by zero errors
             psd /= self.freq_bins + .1
             # Remove low-frequency noise
             psd[self.freq_bins < MIN_FREQ] = 0.
+
     def get_psd(self, axis='all'):
         return self._psd_map[axis]
 
 
 CalibrationResult = collections.namedtuple(
-        'CalibrationResult',
-        ('name', 'freq', 'vals', 'vibrs', 'smoothing', 'score', 'max_accel'))
+    'CalibrationResult',
+    ('name', 'freq', 'vals', 'vibrs', 'smoothing', 'score', 'max_accel'))
+
 
 class ShaperCalibrate:
     def __init__(self, printer):
@@ -65,15 +77,16 @@ class ShaperCalibrate:
             self.numpy = importlib.import_module('numpy')
         except ImportError:
             raise self.error(
-                    "Failed to import `numpy` module, make sure it was "
-                    "installed via `~/klippy-env/bin/pip install` (refer to "
-                    "docs/Measuring_Resonances.md for more details).")
+                "Failed to import `numpy` module, make sure it was "
+                "installed via `~/klippy-env/bin/pip install` (refer to "
+                "docs/Measuring_Resonances.md for more details).")
 
     def background_process_exec(self, method, args):
         if self.printer is None:
             return method(*args)
         import queuelogger
         parent_conn, child_conn = multiprocessing.Pipe()
+
         def wrapper():
             queuelogger.clear_bg_logging()
             try:
@@ -113,7 +126,7 @@ class ShaperCalibrate:
         shape = (window_size, n_windows)
         strides = (x.strides[-1], step_between_windows * x.strides[-1])
         return self.numpy.lib.stride_tricks.as_strided(
-                x, shape=shape, strides=strides, writeable=False)
+            x, shape=shape, strides=strides, writeable=False)
 
     def _psd(self, x, fs, nfft):
         # Calculate power spectral density (PSD) using Welch's algorithm
@@ -136,7 +149,7 @@ class ShaperCalibrate:
         # For one-sided FFT output the response must be doubled, except
         # the last point for unpaired Nyquist frequency (assuming even nfft)
         # and the 'DC' term (0 Hz)
-        result[1:-1,:] *= 2.
+        result[1:-1, :] *= 2.
 
         # Welch's algorithm: average response over windows
         psd = result.real.mean(axis=-1)
@@ -158,7 +171,7 @@ class ShaperCalibrate:
             data = np.array(samples)
 
         N = data.shape[0]
-        T = data[-1,0] - data[0,0]
+        T = data[-1, 0] - data[0, 0]
         SAMPLING_FREQ = N / T
         # Round up to the nearest power of 2 for faster FFT
         M = 1 << int(SAMPLING_FREQ * WINDOW_T_SEC - 1).bit_length()
@@ -167,17 +180,17 @@ class ShaperCalibrate:
 
         # Calculate PSD (power spectral density) of vibrations per
         # frequency bins (the same bins for X, Y, and Z)
-        fx, px = self._psd(data[:,1], SAMPLING_FREQ, M)
-        fy, py = self._psd(data[:,2], SAMPLING_FREQ, M)
-        fz, pz = self._psd(data[:,3], SAMPLING_FREQ, M)
+        fx, px = self._psd(data[:, 1], SAMPLING_FREQ, M)
+        fy, py = self._psd(data[:, 2], SAMPLING_FREQ, M)
+        fz, pz = self._psd(data[:, 3], SAMPLING_FREQ, M)
         return CalibrationData(fx, px+py+pz, px, py, pz)
 
     def process_accelerometer_data(self, data):
         calibration_data = self.background_process_exec(
-                self.calc_freq_response, (data,))
+            self.calc_freq_response, (data,))
         if calibration_data is None:
             raise self.error(
-                    "Internal error processing accelerometer data %s" % (data,))
+                "Internal error processing accelerometer data %s" % (data,))
         calibration_data.set_numpy(self.numpy)
         return calibration_data
 
@@ -201,9 +214,9 @@ class ShaperCalibrate:
         # The input shaper can only reduce the amplitude of vibrations by
         # SHAPER_VIBRATION_REDUCTION times, so all vibrations below that
         # threshold can be igonred
-        vibr_threshold = psd.max() / shaper_defs.SHAPER_VIBRATION_REDUCTION
+        vibr_threshold = psd.max() / SHAPER_VIBRATION_REDUCTION
         remaining_vibrations = self.numpy.maximum(
-                vals * psd - vibr_threshold, 0).sum()
+            vals * psd - vibr_threshold, 0).sum()
         all_vibrations = self.numpy.maximum(psd - vibr_threshold, 0).sum()
         return (remaining_vibrations / all_vibrations, vals)
 
@@ -242,7 +255,7 @@ class ShaperCalibrate:
             shaper_vibrations = 0.
             shaper_vals = np.zeros(shape=freq_bins.shape)
             shaper = shaper_cfg.init_func(
-                    test_freq, shaper_defs.DEFAULT_DAMPING_RATIO)
+                test_freq, DEFAULT_DAMPING_RATIO)
             shaper_smoothing = self._get_shaper_smoothing(shaper)
             if max_smoothing and shaper_smoothing > max_smoothing and best_res:
                 return best_res
@@ -250,7 +263,7 @@ class ShaperCalibrate:
             # remaining vibrations over possible damping values
             for dr in TEST_DAMPING_RATIOS:
                 vibrations, vals = self._estimate_remaining_vibrations(
-                        shaper, dr, freq_bins, psd)
+                    shaper, dr, freq_bins, psd)
                 shaper_vals = np.maximum(shaper_vals, vals)
                 if vibrations > shaper_vibrations:
                     shaper_vibrations = vibrations
@@ -261,10 +274,10 @@ class ShaperCalibrate:
             shaper_score = shaper_smoothing * (shaper_vibrations**1.5 +
                                                shaper_vibrations * .2 + .01)
             results.append(
-                    CalibrationResult(
-                        name=shaper_cfg.name, freq=test_freq, vals=shaper_vals,
-                        vibrs=shaper_vibrations, smoothing=shaper_smoothing,
-                        score=shaper_score, max_accel=max_accel))
+                CalibrationResult(
+                    name=shaper_cfg.name, freq=test_freq, vals=shaper_vals,
+                    vibrs=shaper_vibrations, smoothing=shaper_smoothing,
+                    score=shaper_score, max_accel=max_accel))
             if best_res is None or best_res.vibrs > results[-1].vibrs:
                 # The current frequency is better for the shaper.
                 best_res = results[-1]
@@ -303,7 +316,7 @@ class ShaperCalibrate:
     def find_best_shaper(self, calibration_data, max_smoothing, logger=None):
         best_shaper = None
         all_shapers = []
-        for shaper_cfg in shaper_defs.INPUT_SHAPERS:
+        for shaper_cfg in INPUT_SHAPERS:
             if shaper_cfg.name not in AUTOTUNE_SHAPERS:
                 continue
             shaper = self.background_process_exec(self.fit_shaper, (
@@ -342,9 +355,9 @@ class ShaperCalibrate:
         gcode = self.printer.lookup_object("gcode")
         axis = axis.upper()
         input_shaper.cmd_SET_INPUT_SHAPER(gcode.create_gcode_command(
-                "SET_INPUT_SHAPER", "SET_INPUT_SHAPER", {
-                    "SHAPER_TYPE_" + axis: shaper_name,
-                    "SHAPER_FREQ_" + axis: shaper_freq}))
+            "SET_INPUT_SHAPER", "SET_INPUT_SHAPER", {
+                "SHAPER_TYPE_" + axis: shaper_name,
+                "SHAPER_FREQ_" + axis: shaper_freq}))
 
     def save_calibration_data(self, output, calibration_data, shapers=None):
         try:

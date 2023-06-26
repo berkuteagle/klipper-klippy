@@ -3,8 +3,10 @@
 # Copyright (C) 2018-2021  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import logging, math
-import stepper
+import math
+
+from klippy import stepper
+
 
 class PolarKinematics:
     def __init__(self, toolhead, config):
@@ -17,8 +19,8 @@ class PolarKinematics:
         rail_arm.setup_itersolve('polar_stepper_alloc', b'r')
         rail_z.setup_itersolve('cartesian_stepper_alloc', b'z')
         self.rails = [rail_arm, rail_z]
-        self.steppers = [stepper_bed] + [ s for r in self.rails
-                                          for s in r.get_steppers() ]
+        self.steppers = [stepper_bed] + [s for r in self.rails
+                                         for s in r.get_steppers()]
         for s in self.get_steppers():
             s.set_trapq(toolhead.get_trapq())
             toolhead.register_step_generator(s.generate_steps)
@@ -36,14 +38,17 @@ class PolarKinematics:
         min_z, max_z = self.rails[1].get_range()
         self.axes_min = toolhead.Coord(-max_xy, -max_xy, min_z, 0.)
         self.axes_max = toolhead.Coord(max_xy, max_xy, max_z, 0.)
+
     def get_steppers(self):
         return list(self.steppers)
+
     def calc_position(self, stepper_positions):
         bed_angle = stepper_positions[self.steppers[0].get_name()]
         arm_pos = stepper_positions[self.rails[0].get_name()]
         z_pos = stepper_positions[self.rails[1].get_name()]
         return [math.cos(bed_angle) * arm_pos, math.sin(bed_angle) * arm_pos,
                 z_pos]
+
     def set_position(self, newpos, homing_axes):
         for s in self.steppers:
             s.set_position(newpos)
@@ -51,9 +56,11 @@ class PolarKinematics:
             self.limit_z = self.rails[1].get_range()
         if 0 in homing_axes and 1 in homing_axes:
             self.limit_xy2 = self.rails[0].get_range()[1]**2
+
     def note_z_not_homed(self):
         # Helper for Safe Z Home
         self.limit_z = (1.0, -1.0)
+
     def _home_axis(self, homing_state, axis, rail):
         # Determine movement
         position_min, position_max = rail.get_range()
@@ -69,6 +76,7 @@ class PolarKinematics:
             forcepos[axis] += position_max - hi.position_endstop
         # Perform homing
         homing_state.home_rails([rail], forcepos, homepos)
+
     def home(self, homing_state):
         # Always home XY together
         homing_axes = homing_state.get_axes()
@@ -85,9 +93,11 @@ class PolarKinematics:
             self._home_axis(homing_state, 0, self.rails[0])
         if home_z:
             self._home_axis(homing_state, 2, self.rails[1])
+
     def _motor_off(self, print_time):
         self.limit_z = (1.0, -1.0)
         self.limit_xy2 = -1.
+
     def check_move(self, move):
         end_pos = move.end_pos
         xy2 = end_pos[0]**2 + end_pos[1]**2
@@ -104,6 +114,7 @@ class PolarKinematics:
             z_ratio = move.move_d / abs(move.axes_d[2])
             move.limit_speed(self.max_z_velocity * z_ratio,
                              self.max_z_accel * z_ratio)
+
     def get_status(self, eventtime):
         xy_home = "xy" if self.limit_xy2 >= 0. else ""
         z_home = "z" if self.limit_z[0] <= self.limit_z[1] else ""
@@ -112,6 +123,7 @@ class PolarKinematics:
             'axis_minimum': self.axes_min,
             'axis_maximum': self.axes_max,
         }
+
 
 def load_kinematics(toolhead, config):
     return PolarKinematics(toolhead, config)

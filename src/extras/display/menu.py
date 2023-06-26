@@ -4,9 +4,13 @@
 # Copyright (C) 2020  Janar Sööt <janar.soot@gmail.com>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import os, logging, ast, re
+import os
+import logging
+import ast
+import re
 from string import Template
-from . import menu_keys
+
+from klippy.extras.display import menu_keys
 
 
 class sentinel:
@@ -234,6 +238,7 @@ class MenuElement(object):
 
 class MenuContainer(MenuElement):
     """Menu container abstract class"""
+
     def __init__(self, manager, config, **kwargs):
         if type(self) is MenuContainer:
             raise error(

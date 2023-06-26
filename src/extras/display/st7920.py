@@ -3,18 +3,18 @@
 # Copyright (C) 2018  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import logging
-from .. import bus
-from . import font8x14
+from klippy.extras import bus
+from klippy.extras.display import font8x14
 
 BACKGROUND_PRIORITY_CLOCK = 0x7fffffff00000000
 
 # Spec says 72us, but faster is possible in practice
-ST7920_CMD_DELAY  = .000020
+ST7920_CMD_DELAY = .000020
 ST7920_SYNC_DELAY = .000045
 
-TextGlyphs = { 'right_arrow': b'\x1a' }
-CharGlyphs = { 'degrees': bytearray(font8x14.VGA_FONT[0xf8]) }
+TextGlyphs = {'right_arrow': b'\x1a'}
+CharGlyphs = {'degrees': bytearray(font8x14.VGA_FONT[0xf8])}
+
 
 class DisplayBase:
     def __init__(self):
@@ -28,10 +28,11 @@ class DisplayBase:
             # Glyph framebuffer
             (self.glyph_framebuffer, bytearray(b'~'*128), 0x40),
             # Graphics framebuffers
-            ] + [(self.graphics_framebuffers[i], bytearray(b'~'*32), i)
-                 for i in range(32)]
+        ] + [(self.graphics_framebuffers[i], bytearray(b'~'*32), i)
+             for i in range(32)]
         self.cached_glyphs = {}
         self.icons = {}
+
     def flush(self):
         # Find all differences in the framebuffers and send them to the chip
         for new_data, old_data, fb_id in self.all_framebuffers:
@@ -55,22 +56,25 @@ class DisplayBase:
                 chip_pos = pos >> 1
                 if fb_id < 0x40:
                     # Graphics framebuffer update
-                    self.send([0x80 + fb_id, 0x80 + chip_pos], is_extended=True)
+                    self.send([0x80 + fb_id, 0x80 + chip_pos],
+                              is_extended=True)
                 else:
                     self.send([fb_id + chip_pos])
                 self.send(new_data[pos:pos+count], is_data=True)
             old_data[:] = new_data
+
     def init(self):
-        cmds = [0x24, # Enter extended mode
-                0x40, # Clear vertical scroll address
-                0x02, # Enable CGRAM access
-                0x26, # Enable graphics
-                0x22, # Leave extended mode
-                0x02, # Home the display
-                0x06, # Set positive update direction
-                0x0c] # Enable display and hide cursor
+        cmds = [0x24,  # Enter extended mode
+                0x40,  # Clear vertical scroll address
+                0x02,  # Enable CGRAM access
+                0x26,  # Enable graphics
+                0x22,  # Leave extended mode
+                0x02,  # Home the display
+                0x06,  # Set positive update direction
+                0x0c]  # Enable display and hide cursor
         self.send(cmds)
         self.flush()
+
     def cache_glyph(self, glyph_name, base_glyph_name, glyph_id):
         icon = self.icons.get(glyph_name)
         base_icon = self.icons.get(base_glyph_name)
@@ -83,6 +87,7 @@ class DisplayBase:
             self.glyph_framebuffer[pos:pos+2] = [x1, x2]
             self.all_framebuffers[1][1][pos:pos+2] = [x1 ^ 1, x2 ^ 1]
         self.cached_glyphs[glyph_name] = (base_glyph_name, (0, glyph_id*2))
+
     def set_glyphs(self, glyphs):
         for glyph_name, glyph_data in glyphs.items():
             icon = glyph_data.get('icon16x16')
@@ -91,11 +96,13 @@ class DisplayBase:
         # Setup animated glyphs
         self.cache_glyph('fan2', 'fan1', 0)
         self.cache_glyph('bed_heat2', 'bed_heat1', 1)
+
     def write_text(self, x, y, data):
         if x + len(data) > 16:
             data = data[:16 - min(x, 16)]
         pos = [0, 32, 16, 48][y] + x
         self.text_framebuffer[pos:pos+len(data)] = data
+
     def write_graphics(self, x, y, data):
         if x >= 16 or y >= 4 or len(data) != 16:
             return
@@ -105,6 +112,7 @@ class DisplayBase:
             x += 16
         for i, bits in enumerate(data):
             self.graphics_framebuffers[gfx_fb + i][x] = bits
+
     def write_glyph(self, x, y, glyph_name):
         glyph_id = self.cached_glyphs.get(glyph_name)
         if glyph_id is not None and x & 1 == 0:
@@ -128,15 +136,19 @@ class DisplayBase:
             self.write_graphics(x, y, font)
             return 1
         return 0
+
     def clear(self):
         self.text_framebuffer[:] = b' '*64
         zeros = bytearray(32)
         for gfb in self.graphics_framebuffers:
             gfb[:] = zeros
+
     def get_dimensions(self):
         return (16, 4)
 
 # Display driver for stock ST7920 displays
+
+
 class ST7920(DisplayBase):
     def __init__(self, config):
         printer = config.get_printer()
@@ -158,6 +170,7 @@ class ST7920(DisplayBase):
         self.is_extended = False
         # init display base
         DisplayBase.__init__(self)
+
     def build_config(self):
         # configure send functions
         self.mcu.add_config_cmd(
@@ -171,6 +184,7 @@ class ST7920(DisplayBase):
             "st7920_send_cmds oid=%c cmds=%*s", cq=cmd_queue)
         self.send_data_cmd = self.mcu.lookup_command(
             "st7920_send_data oid=%c data=%*s", cq=cmd_queue)
+
     def send(self, cmds, is_data=False, is_extended=False):
         cmd_type = self.send_cmds_cmd
         if is_data:
@@ -182,13 +196,16 @@ class ST7920(DisplayBase):
             cmds = [add_cmd] + cmds
             self.is_extended = is_extended
         cmd_type.send([self.oid, cmds], reqclock=BACKGROUND_PRIORITY_CLOCK)
-        #logging.debug("st7920 %d %s", is_data, repr(cmds))
+        # logging.debug("st7920 %d %s", is_data, repr(cmds))
 
 # Helper code for toggling the en pin on startup
+
+
 class EnableHelper:
     def __init__(self, pin_desc, spi):
         self.en_pin = bus.MCU_bus_digital_out(spi.get_mcu(), pin_desc,
                                               spi.get_command_queue())
+
     def init(self):
         mcu = self.en_pin.get_mcu()
         curtime = mcu.get_printer().get_reactor().monotonic()
@@ -206,6 +223,8 @@ class EnableHelper:
 # These displays rely on the CS pin to be toggled in order to initialize the
 # SPI correctly. This display driver uses a software SPI with an unused pin
 # as the MISO pin.
+
+
 class EmulatedST7920(DisplayBase):
     def __init__(self, config):
         # create software spi
@@ -229,6 +248,7 @@ class EmulatedST7920(DisplayBase):
         # init display base
         self.is_extended = False
         DisplayBase.__init__(self)
+
     def send(self, cmds, is_data=False, is_extended=False):
         # setup sync byte and check for exten mode switch
         sync_byte = 0xfa
@@ -254,4 +274,4 @@ class EmulatedST7920(DisplayBase):
             self.en_set = True
         # send data
         self.spi.spi_send(spi_data, reqclock=BACKGROUND_PRIORITY_CLOCK)
-        #logging.debug("st7920 %s", repr(spi_data))
+        # logging.debug("st7920 %s", repr(spi_data))

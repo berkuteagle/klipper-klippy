@@ -22,7 +22,7 @@ class SafeZHoming:
 
         if config.has_section("homing_override"):
             raise config.error("homing_override and safe_z_homing cannot"
-                               +" be used simultaneously")
+                               + " be used simultaneously")
 
     def cmd_G28(self, gcmd):
         toolhead = self.printer.lookup_object('toolhead')
@@ -60,7 +60,8 @@ class SafeZHoming:
         if need_y:
             new_params['Y'] = '0'
         if new_params:
-            g28_gcmd = self.gcode.create_gcode_command("G28", "G28", new_params)
+            g28_gcmd = self.gcode.create_gcode_command(
+                "G28", "G28", new_params)
             self.prev_G28(g28_gcmd)
 
         # Home Z axis if necessary
@@ -69,13 +70,15 @@ class SafeZHoming:
             curtime = self.printer.get_reactor().monotonic()
             kin_status = toolhead.get_kinematics().get_status(curtime)
             if ('x' not in kin_status['homed_axes'] or
-                'y' not in kin_status['homed_axes']):
+                    'y' not in kin_status['homed_axes']):
                 raise gcmd.error("Must home X and Y axes first")
             # Move to safe XY homing position
             prevpos = toolhead.get_position()
-            toolhead.manual_move([self.home_x_pos, self.home_y_pos], self.speed)
+            toolhead.manual_move(
+                [self.home_x_pos, self.home_y_pos], self.speed)
             # Home Z
-            g28_gcmd = self.gcode.create_gcode_command("G28", "G28", {'Z': '0'})
+            g28_gcmd = self.gcode.create_gcode_command(
+                "G28", "G28", {'Z': '0'})
             self.prev_G28(g28_gcmd)
             # Perform Z Hop again for pressure-based probes
             if self.z_hop:
@@ -86,6 +89,7 @@ class SafeZHoming:
             # Move XY back to previous positions
             if self.move_to_previous:
                 toolhead.manual_move(prevpos[:2], self.speed)
+
 
 def load_config(config):
     return SafeZHoming(config)

@@ -3,9 +3,9 @@
 # Copyright (C) 2019  Stephan Oelze <stephan.oelze@gmail.com>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-from . import tmc2208, tmc2130, tmc, tmc_uart
+from klippy.extras import tmc2208, tmc2130, tmc, tmc_uart
 
-TMC_FREQUENCY=12000000.
+TMC_FREQUENCY = 12000000.
 
 Registers = dict(tmc2208.Registers)
 Registers.update({
@@ -62,7 +62,7 @@ class TMC2209:
                                              TMC_FREQUENCY)
         # Setup fields for UART
         self.fields.set_field("pdn_disable", True)
-        self.fields.set_field("senddelay", 2) # Avoid tx errors on shared uart
+        self.fields.set_field("senddelay", 2)  # Avoid tx errors on shared uart
         # Allow virtual pins to be created
         tmc.TMCVirtualPinHelper(config, self.mcu_tmc)
         # Register commands
@@ -97,6 +97,7 @@ class TMC2209:
         set_config_field(config, "tpowerdown", 20)
         # SGTHRS
         set_config_field(config, "sgthrs", 0)
+
 
 def load_config_prefix(config):
     return TMC2209(config)

@@ -3,9 +3,11 @@
 # Copyright (C) 2017-2019  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import math, logging, collections
-import mathutil
-from . import probe
+import math
+import logging
+
+from klippy import mathutil
+from klippy.extras import probe
 
 # A "stable position" is a 3-tuple containing the number of steps
 # taken since hitting the endstop on each delta tower.  Delta
@@ -13,6 +15,8 @@ from . import probe
 # to be described independent of the software parameters.
 
 # Load a stable position from a config entry
+
+
 def load_config_stable(config, option):
     return config.getfloatlist(option, count=3)
 
@@ -32,6 +36,8 @@ MEASURE_WEIGHT = 0.5
 
 # Convert distance measurements made on the calibration object to
 # 3-tuples of (actual_distance, stable_position1, stable_position2)
+
+
 def measurements_to_distances(measured_params, delta_params):
     # Extract params
     mp = measured_params
@@ -43,7 +49,7 @@ def measurements_to_distances(measured_params, delta_params):
                     for od, cw in zip(mp['CENTER_DISTS'], center_widths)]
     outer_dists = [
         od - opw
-        for od, opw in zip(mp['OUTER_DISTS'], mp['OUTER_PILLAR_WIDTHS']) ]
+        for od, opw in zip(mp['OUTER_DISTS'], mp['OUTER_PILLAR_WIDTHS'])]
     # Convert angles in degrees to an XY multiplier
     obj_angles = list(map(math.radians, MeasureAngles))
     xy_angles = list(zip(map(math.cos, obj_angles), map(math.sin, obj_angles)))
@@ -59,7 +65,8 @@ def measurements_to_distances(measured_params, delta_params):
         for cd, ip, op in zip(center_dists, inner_pos, outer_pos)]
     # Calculate positions of outer measurements
     outer_center = MeasureOuterRadius * scale
-    start_pos = [(ax * outer_center, ay * outer_center) for ax, ay in xy_angles]
+    start_pos = [(ax * outer_center, ay * outer_center)
+                 for ax, ay in xy_angles]
     shifted_angles = xy_angles[2:] + xy_angles[:2]
     first_pos = [(ax * inner_ridge + spx, ay * inner_ridge + spy, 0.)
                  for (ax, ay), (spx, spy) in zip(shifted_angles, start_pos)]
@@ -115,8 +122,10 @@ class DeltaCalibrate:
             dist = config.getfloat("distance%d" % (i,), None)
             if dist is None:
                 break
-            distance_pos1 = load_config_stable(config, "distance%d_pos1" % (i,))
-            distance_pos2 = load_config_stable(config, "distance%d_pos2" % (i,))
+            distance_pos1 = load_config_stable(
+                config, "distance%d_pos1" % (i,))
+            distance_pos2 = load_config_stable(
+                config, "distance%d_pos2" % (i,))
             self.last_distances.append((dist, distance_pos1, distance_pos2))
         # Register gcode commands
         self.gcode = self.printer.lookup_object('gcode')
@@ -124,11 +133,13 @@ class DeltaCalibrate:
                                     desc=self.cmd_DELTA_CALIBRATE_help)
         self.gcode.register_command('DELTA_ANALYZE', self.cmd_DELTA_ANALYZE,
                                     desc=self.cmd_DELTA_ANALYZE_help)
+
     def handle_connect(self):
         kin = self.printer.lookup_object('toolhead').get_kinematics()
         if not hasattr(kin, "get_calibration"):
             raise self.printer.config_error(
                 "Delta calibrate is only for delta printers")
+
     def save_state(self, probe_positions, distances, delta_params):
         # Save main delta parameters
         configfile = self.printer.lookup_object('configfile')
@@ -152,6 +163,7 @@ class DeltaCalibrate:
                            "%.3f,%.3f,%.3f" % tuple(spos1))
             configfile.set(section, "distance%d_pos2" % (i,),
                            "%.3f,%.3f,%.3f" % tuple(spos2))
+
     def probe_finalize(self, offsets, positions):
         # Convert positions into (z_offset, stable_position) pairs
         z_offset = offsets[2]
@@ -161,6 +173,7 @@ class DeltaCalibrate:
                            for p in positions]
         # Perform analysis
         self.calculate_params(probe_positions, self.last_distances)
+
     def calculate_params(self, probe_positions, distances):
         height_positions = self.manual_heights + probe_positions
         # Setup for coordinate descent analysis
@@ -174,6 +187,7 @@ class DeltaCalibrate:
         if distances:
             z_weight = len(distances) / (MEASURE_WEIGHT * len(probe_positions))
         # Perform coordinate descent
+
         def delta_errorfunc(params):
             try:
                 # Build new delta_params for params under test
@@ -219,8 +233,10 @@ class DeltaCalibrate:
             "The SAVE_CONFIG command will update the printer config file\n"
             "with these parameters and restart the printer.")
     cmd_DELTA_CALIBRATE_help = "Delta calibration script"
+
     def cmd_DELTA_CALIBRATE(self, gcmd):
         self.probe_helper.start_probe(gcmd)
+
     def add_manual_height(self, height):
         # Determine current location of toolhead
         toolhead = self.printer.lookup_object('toolhead')
@@ -237,6 +253,7 @@ class DeltaCalibrate:
         self.gcode.respond_info(
             "Adding manual height: %.3f,%.3f,%.3f is actually z=%.3f"
             % (kin_pos[0], kin_pos[1], kin_pos[2], height))
+
     def do_extended_calibration(self):
         # Extract distance positions
         if len(self.delta_analyze_entry) <= 1:
@@ -254,6 +271,7 @@ class DeltaCalibrate:
         # Perform analysis
         self.calculate_params(self.last_probe_positions, distances)
     cmd_DELTA_ANALYZE_help = "Extended delta calibration tool"
+
     def cmd_DELTA_ANALYZE(self, gcmd):
         # Check for manual height entry
         mheight = gcmd.get_float('MANUAL_HEIGHT', None)
@@ -282,6 +300,7 @@ class DeltaCalibrate:
             if action != 'extended':
                 raise gcmd.error("Unknown calibrate action")
             self.do_extended_calibration()
+
 
 def load_config(config):
     return DeltaCalibrate(config)

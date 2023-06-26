@@ -3,10 +3,11 @@
 # Copyright (C) 2018-2019  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import math, logging
-from . import bus, tmc, tmc2130
+import math
 
-TMC_FREQUENCY=12000000.
+from klippy.extras import bus, tmc, tmc2130
+
+TMC_FREQUENCY = 12000000.
 
 Registers = {
     "GCONF":            0x00,
@@ -98,7 +99,7 @@ Fields["CHOPCONF"] = {
     "tbl":                      0x03 << 15,
     "vhighfs":                  0x01 << 18,
     "vhighchm":                 0x01 << 19,
-    "tpfd":                     0x0F << 20, # midrange resonances
+    "tpfd":                     0x0F << 20,  # midrange resonances
     "mres":                     0x0F << 24,
     "intpol":                   0x01 << 28,
     "dedge":                    0x01 << 29,
@@ -178,14 +179,14 @@ Fields["IOIN"] = {
 Fields["LOST_STEPS"] = {
     "lost_steps":               0xfffff << 0
 }
-Fields["MSLUT0"] = { "mslut0": 0xffffffff }
-Fields["MSLUT1"] = { "mslut1": 0xffffffff }
-Fields["MSLUT2"] = { "mslut2": 0xffffffff }
-Fields["MSLUT3"] = { "mslut3": 0xffffffff }
-Fields["MSLUT4"] = { "mslut4": 0xffffffff }
-Fields["MSLUT5"] = { "mslut5": 0xffffffff }
-Fields["MSLUT6"] = { "mslut6": 0xffffffff }
-Fields["MSLUT7"] = { "mslut7": 0xffffffff }
+Fields["MSLUT0"] = {"mslut0": 0xffffffff}
+Fields["MSLUT1"] = {"mslut1": 0xffffffff}
+Fields["MSLUT2"] = {"mslut2": 0xffffffff}
+Fields["MSLUT3"] = {"mslut3": 0xffffffff}
+Fields["MSLUT4"] = {"mslut4": 0xffffffff}
+Fields["MSLUT5"] = {"mslut5": 0xffffffff}
+Fields["MSLUT6"] = {"mslut6": 0xffffffff}
+Fields["MSLUT7"] = {"mslut7": 0xffffffff}
 Fields["MSLUTSEL"] = {
     "x3":                       0xFF << 24,
     "x2":                       0xFF << 16,
@@ -243,7 +244,8 @@ Fields["TSTEP"] = {
     "tstep":                    0xfffff << 0
 }
 
-SignedFields = ["cur_a", "cur_b", "sgt", "xactual", "vactual", "pwm_scale_auto"]
+SignedFields = ["cur_a", "cur_b", "sgt",
+                "xactual", "vactual", "pwm_scale_auto"]
 
 FieldFormatters = dict(tmc2130.FieldFormatters)
 FieldFormatters.update({
@@ -259,6 +261,7 @@ FieldFormatters.update({
 VREF = 0.325
 MAX_CURRENT = 3.000
 
+
 class TMC5160CurrentHelper:
     def __init__(self, config, mcu_tmc):
         self.printer = config.get_printer()
@@ -270,11 +273,13 @@ class TMC5160CurrentHelper:
         hold_current = config.getfloat('hold_current', MAX_CURRENT,
                                        above=0., maxval=MAX_CURRENT)
         self.req_hold_current = hold_current
-        self.sense_resistor = config.getfloat('sense_resistor', 0.075, above=0.)
+        self.sense_resistor = config.getfloat(
+            'sense_resistor', 0.075, above=0.)
         gscaler, irun, ihold = self._calc_current(run_current, hold_current)
         self.fields.set_field("globalscaler", gscaler)
         self.fields.set_field("ihold", ihold)
         self.fields.set_field("irun", irun)
+
     def _calc_globalscaler(self, current):
         globalscaler = int((current * 256. * math.sqrt(2.)
                             * self.sense_resistor / VREF) + .5)
@@ -282,6 +287,7 @@ class TMC5160CurrentHelper:
         if globalscaler >= 256:
             globalscaler = 0
         return globalscaler
+
     def _calc_current_bits(self, current, globalscaler):
         if not globalscaler:
             globalscaler = 256
@@ -289,11 +295,14 @@ class TMC5160CurrentHelper:
                  / (globalscaler * VREF)
                  - 1. + .5)
         return max(0, min(31, cs))
+
     def _calc_current(self, run_current, hold_current):
         gscaler = self._calc_globalscaler(run_current)
         irun = self._calc_current_bits(run_current, gscaler)
-        ihold = self._calc_current_bits(min(hold_current, run_current), gscaler)
+        ihold = self._calc_current_bits(
+            min(hold_current, run_current), gscaler)
         return gscaler, irun, ihold
+
     def _calc_current_from_field(self, field_name):
         globalscaler = self.fields.get_field("globalscaler")
         if not globalscaler:
@@ -301,10 +310,12 @@ class TMC5160CurrentHelper:
         bits = self.fields.get_field(field_name)
         return (globalscaler * (bits + 1) * VREF
                 / (256. * 32. * math.sqrt(2.) * self.sense_resistor))
+
     def get_current(self):
         run_current = self._calc_current_from_field("irun")
         hold_current = self._calc_current_from_field("ihold")
         return run_current, hold_current, self.req_hold_current, MAX_CURRENT
+
     def set_current(self, run_current, hold_current, print_time):
         self.req_hold_current = hold_current
         gscaler, irun, ihold = self._calc_current(run_current, hold_current)
@@ -378,6 +389,7 @@ class TMC5160:
         set_config_field(config, "pwm_lim", 12)
         #   TPOWERDOWN
         set_config_field(config, "tpowerdown", 10)
+
 
 def load_config_prefix(config):
     return TMC5160(config)

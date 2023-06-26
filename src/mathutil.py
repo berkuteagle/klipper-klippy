@@ -3,8 +3,12 @@
 # Copyright (C) 2018-2019  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import math, logging, multiprocessing, traceback
-from . import queuelogger
+import math
+import logging
+import multiprocessing
+import traceback
+
+from klippy import queuelogger
 
 
 ######################################################################
@@ -49,8 +53,11 @@ def coordinate_descent(adj_params, params, error_func):
 
 # Helper to run the coordinate descent function in a background
 # process so that it does not block the main thread.
+
+
 def background_coordinate_descent(printer, adj_params, params, error_func):
     parent_conn, child_conn = multiprocessing.Pipe()
+
     def wrapper():
         queuelogger.clear_bg_logging()
         try:
@@ -121,17 +128,22 @@ def matrix_cross(m1, m2):
             m1[2] * m2[0] - m1[0] * m2[2],
             m1[0] * m2[1] - m1[1] * m2[0]]
 
+
 def matrix_dot(m1, m2):
     return m1[0] * m2[0] + m1[1] * m2[1] + m1[2] * m2[2]
+
 
 def matrix_magsq(m1):
     return m1[0]**2 + m1[1]**2 + m1[2]**2
 
+
 def matrix_add(m1, m2):
     return [m1[0] + m2[0], m1[1] + m2[1], m1[2] + m2[2]]
 
+
 def matrix_sub(m1, m2):
     return [m1[0] - m2[0], m1[1] - m2[1], m1[2] - m2[2]]
+
 
 def matrix_mul(m1, s):
     return [m1[0]*s, m1[1]*s, m1[2]*s]

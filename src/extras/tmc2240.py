@@ -4,10 +4,11 @@
 # Copyright (C) 2023  Alex Voinea <voinea.dragos.alexandru@gmail.com>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import math, logging
-from . import bus, tmc, tmc2130
+import math
 
-TMC_FREQUENCY=12500000.
+from klippy.extras import bus, tmc, tmc2130
+
+TMC_FREQUENCY = 12500000.
 
 Registers = {
     "GCONF":            0x00,
@@ -82,7 +83,7 @@ Fields["CHOPCONF"] = {
     "tbl":                      0x03 << 15,
     "vhighfs":                  0x01 << 18,
     "vhighchm":                 0x01 << 19,
-    "tpfd":                     0x0F << 20, # midrange resonances
+    "tpfd":                     0x0F << 20,  # midrange resonances
     "mres":                     0x0F << 24,
     "intpol":                   0x01 << 28,
     "dedge":                    0x01 << 29,
@@ -157,14 +158,14 @@ Fields["IOIN"] = {
     "silicon_rv":               0x07 << 16,
     "version":                  0xFF << 24
 }
-Fields["MSLUT0"] = { "mslut0": 0xffffffff }
-Fields["MSLUT1"] = { "mslut1": 0xffffffff }
-Fields["MSLUT2"] = { "mslut2": 0xffffffff }
-Fields["MSLUT3"] = { "mslut3": 0xffffffff }
-Fields["MSLUT4"] = { "mslut4": 0xffffffff }
-Fields["MSLUT5"] = { "mslut5": 0xffffffff }
-Fields["MSLUT6"] = { "mslut6": 0xffffffff }
-Fields["MSLUT7"] = { "mslut7": 0xffffffff }
+Fields["MSLUT0"] = {"mslut0": 0xffffffff}
+Fields["MSLUT1"] = {"mslut1": 0xffffffff}
+Fields["MSLUT2"] = {"mslut2": 0xffffffff}
+Fields["MSLUT3"] = {"mslut3": 0xffffffff}
+Fields["MSLUT4"] = {"mslut4": 0xffffffff}
+Fields["MSLUT5"] = {"mslut5": 0xffffffff}
+Fields["MSLUT6"] = {"mslut6": 0xffffffff}
+Fields["MSLUT7"] = {"mslut7": 0xffffffff}
 Fields["MSLUTSEL"] = {
     "x3":                       0xFF << 24,
     "x2":                       0xFF << 16,
@@ -285,16 +286,19 @@ class TMC2240CurrentHelper:
         self.fields.set_field("globalscaler", gscaler)
         self.fields.set_field("ihold", ihold)
         self.fields.set_field("irun", irun)
+
     def _get_ifs_rms(self, current_range=None):
         if current_range is None:
             current_range = self.fields.get_field("current_range")
         KIFS = [11750., 24000., 36000., 36000.]
         return (KIFS[current_range] / self.Rref) / math.sqrt(2.)
+
     def _calc_current_range(self, current):
         for current_range in range(4):
             if current <= self._get_ifs_rms(current_range):
                 break
         return current_range
+
     def _calc_globalscaler(self, current):
         ifs_rms = self._get_ifs_rms()
         globalscaler = int(((current * 256.) / ifs_rms) + .5)
@@ -302,17 +306,21 @@ class TMC2240CurrentHelper:
         if globalscaler >= 256:
             globalscaler = 0
         return globalscaler
+
     def _calc_current_bits(self, current, globalscaler):
         ifs_rms = self._get_ifs_rms()
         if not globalscaler:
             globalscaler = 256
         cs = int((current * 256. * 32.) / (globalscaler * ifs_rms) - 1. + .5)
         return max(0, min(31, cs))
+
     def _calc_current(self, run_current, hold_current):
         gscaler = self._calc_globalscaler(run_current)
         irun = self._calc_current_bits(run_current, gscaler)
-        ihold = self._calc_current_bits(min(hold_current, run_current), gscaler)
+        ihold = self._calc_current_bits(
+            min(hold_current, run_current), gscaler)
         return gscaler, irun, ihold
+
     def _calc_current_from_field(self, field_name):
         ifs_rms = self._get_ifs_rms()
         globalscaler = self.fields.get_field("globalscaler")
@@ -320,11 +328,13 @@ class TMC2240CurrentHelper:
             globalscaler = 256
         bits = self.fields.get_field(field_name)
         return globalscaler * (bits + 1) * ifs_rms / (256. * 32.)
+
     def get_current(self):
         ifs_rms = self._get_ifs_rms()
         run_current = self._calc_current_from_field("irun")
         hold_current = self._calc_current_from_field("ihold")
         return (run_current, hold_current, self.req_hold_current, ifs_rms)
+
     def set_current(self, run_current, hold_current, print_time):
         self.req_hold_current = hold_current
         gscaler, irun, ihold = self._calc_current(run_current, hold_current)
@@ -397,6 +407,7 @@ class TMC2240:
         set_config_field(config, "tpowerdown", 10)
         #   SG4_THRS
         set_config_field(config, "sg4_angle_offset", 1)
+
 
 def load_config_prefix(config):
     return TMC2240(config)
