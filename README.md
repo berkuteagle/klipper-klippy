@@ -1,4 +1,4 @@
-# Klipper-host
+# Klipper-klippy
 Part of [Klipper project](https://github.com/Klipper3d/klipper)
 
 Host service for micro-controllers management
