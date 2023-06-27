@@ -6,7 +6,6 @@
 import math
 import logging
 import importlib
-import os
 
 from klippy.kinematics import extruder
 from klippy._chelper import ffi, lib
@@ -276,19 +275,7 @@ class ToolHead:
         self.extruder = extruder.DummyExtruder(self.printer)
         kin_name = config.get('kinematics')
         try:
-            module_path = os.path.join(os.path.dirname(
-                __file__), 'kinematics', kin_name + '.py')
-            module_dir_path = os.path.join(os.path.dirname(
-                __file__), 'kinematics', kin_name, '__init__.py')
-
-            if not os.path.exists(module_path) and not os.path.exists(module_dir_path):
-                raise self.config_error(
-                    "Unable to load module '%s'" % (section,))
-
-            spec = importlib.util.spec_from_file_location(
-                kin_name, module_path)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
+            mod = importlib.import_module('klippy.kinematics.' + kin_name)
             self.kin = mod.load_kinematics(self, config)
         except config.error as e:
             raise

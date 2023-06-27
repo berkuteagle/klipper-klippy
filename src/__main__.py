@@ -6,6 +6,7 @@ import logging
 import time
 import importlib
 
+import klippy
 from klippy import util, reactor, queuelogger, printer
 
 
@@ -13,7 +14,7 @@ def import_test():
     # Import all optional modules (used as a build test)
     dname = os.path.dirname(__file__)
     for mname in ['extras', 'kinematics']:
-        for fname in os.listdir(os.path.join(dname, mname)):
+        for fname in os.listdir(os.path.join(klippy.__path__[0], mname)):
             if fname.endswith('.py') and fname != '__init__.py':
                 module_name = fname[:-3]
             else:
@@ -21,7 +22,7 @@ def import_test():
                 if not os.path.exists(iname):
                     continue
                 module_name = fname
-            importlib.import_module(mname + '.' + module_name)
+            importlib.import_module('klippy.' + mname + '.' + module_name)
     sys.exit(0)
 
 

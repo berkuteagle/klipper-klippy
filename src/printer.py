@@ -2,7 +2,7 @@ import os
 import logging
 import time
 import collections
-import importlib.util
+import importlib
 
 from klippy import util, msgproto, gcode, configfile, pins, mcu, toolhead, webhooks
 
@@ -127,19 +127,12 @@ class Printer:
         module_parts = section.split()
         module_name = module_parts[0]
 
-        module_path = os.path.join(os.path.dirname(
-            __file__), 'extras', module_name + '.py')
-        module_dir_path = os.path.join(os.path.dirname(
-            __file__), 'extras', module_name, '__init__.py')
-
-        if not os.path.exists(module_path) and not os.path.exists(module_dir_path):
+        try:
+            mod = importlib.import_module('klippy.extras.' + module_name)
+        except Exception:
             if default is not configfile.sentinel:
                 return default
             raise self.config_error("Unable to load module '%s'" % (section,))
-
-        spec = importlib.util.spec_from_file_location(module_name, module_path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
 
         init_func = 'load_config'
         if len(module_parts) > 1:
