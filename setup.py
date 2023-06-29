@@ -3,6 +3,8 @@ from setuptools import setup
 setup(
     name="klippy",
     version="0.0.1",
+    description="Klipper host service",
+    long_description="Klipper host service for mcu management",
     setup_requires=["cffi>=1.0.0"],
     packages=["klippy", "klippy.kinematics",
               "klippy.extras", "klippy.extras.display"],
