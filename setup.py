@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(
-    name="klippy",
+    name="klipper-klippy",
     version="0.0.1",
     description="Klipper host service",
     long_description="Klipper host service for mcu management",
