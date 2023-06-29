@@ -9,6 +9,6 @@ setup(
     package_dir={"klippy": "src"},
     package_data={"klippy.extras": ["*.cfg"],
                   "klippy.extras.display": ["*.cfg"]},
-    cffi_modules=["chelper_builder.py:ffibuilder"],
+    cffi_modules=["src/chelper_builder.py:ffibuilder"],
     install_requires=["cffi>=1.0.0"]
 )
