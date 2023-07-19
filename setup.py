@@ -13,5 +13,6 @@ setup(
                   "klippy": ["chelper/*.c", "chelper/*.h"],
                   "klippy.extras.display": ["*.cfg"]},
     cffi_modules=["src/chelper_builder.py:ffibuilder"],
-    install_requires=["cffi>=1.0.0"]
+    install_requires=["cffi>=1.0.0"],
+    requires=["cffi>=1.0.0", "greenlet>=2.0.0", "pyserial>=3.5"]
 )
